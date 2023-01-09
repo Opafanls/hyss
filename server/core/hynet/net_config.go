@@ -7,3 +7,8 @@ const (
 	ReadTimeout
 	WriteTimeout
 )
+
+type TcpListenConfig struct {
+	Addr string
+	Port int
+}

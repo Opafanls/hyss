@@ -83,6 +83,10 @@ func (tcpServer *TcpServer) HandleConn(conn IHyConn) {
 	}
 }
 
+func (tcpServer *TcpServer) Listener() net.Listener {
+	return tcpServer.listener
+}
+
 type UdpServer struct {
 	ip   string
 	port int

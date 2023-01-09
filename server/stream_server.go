@@ -1,7 +1,7 @@
 package server
 
 import (
-	"github.com/Opafanls/hylan/server/protocol"
+	"github.com/Opafanls/hylan/server/core/hynet"
 	"github.com/Opafanls/hylan/server/protocol/rtmp"
 	"github.com/Opafanls/hylan/server/stream"
 )
@@ -31,14 +31,18 @@ func (hy *HylanServer) initServer() {
 }
 
 func (hy *HylanServer) listeners() {
-	listeners := []protocol.ListenServer{
-		rtmp.NewRtmp(&protocol.ListenArg{
-			Ip: "0.0.0.0", Port: 1935,
+	listeners := []hynet.ListenServer{
+		rtmp.NewServer(&hynet.TcpListenConfig{
+			Addr: "",
+			Port: 1935,
 		}),
 	}
 
 	for _, listener := range listeners {
-		listener.Listen()
+		err := listener.Listen()
+		if err != nil {
+			panic(err)
+		}
 	}
 }
 

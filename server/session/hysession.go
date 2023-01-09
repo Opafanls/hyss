@@ -58,9 +58,7 @@ func NewHySession(ctx context.Context, ps protocol.Handler, sessionType constdef
 }
 
 func (hy *HySession) Cycle() {
-	session := hy.protocolSession
-	session.Init()
-
+	//session := hy.protocolSession
 }
 
 func (hy *HySessionSource) AddSink(arg *proto.SinkArg) HySessionI {
