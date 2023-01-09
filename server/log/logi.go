@@ -6,7 +6,6 @@ import (
 )
 
 var MainLog ILog
-var Ctx = context.Background()
 
 func init() {
 	MainLog = &Logrus{}

@@ -1,10 +1,21 @@
 package constdef
 
-import "fmt"
+import (
+	"context"
+	"fmt"
+)
 
 type HyError struct {
 	Err    error
 	CtxMsg string
+	Ctx    context.Context
+}
+
+func NewHyErrorWithSimpleMsg(err error) *HyError {
+	return &HyError{
+		Err:    err,
+		CtxMsg: "",
+	}
 }
 
 func NewHyError(ctxMsg string, err error) *HyError {

@@ -2,48 +2,35 @@ package protocol
 
 import (
 	"context"
-	"github.com/Opafanls/hylan/server/constdef"
-	"github.com/Opafanls/hylan/server/proto"
+	"github.com/Opafanls/hylan/server/core/hynet"
 )
 
-type ListenArg struct {
-	Ip   string
-	Port int
+type Handler interface {
+	OnMedia(ctx context.Context, mediaType MediaDataType, data interface{}) error
+	OnClose() error
 }
 
-type Protocol interface {
-	Name() string
-	Listen(arg *ListenArg)
-	SetData(packet proto.PacketI) *constdef.HyError
-	GetData() (proto.PacketI, *constdef.HyError)
-	Stop(msg string) *constdef.HyError
+type TcpHandler struct {
+	conn hynet.IHyConn
+	ctx  context.Context
 }
 
-type BaseProtocol struct {
-	ctx context.Context
+func (tcp *TcpHandler) OnMedia(ctx context.Context, mediaType MediaDataType, data interface{}) error {
+
+	return nil
 }
 
-func (b *BaseProtocol) Name() string {
-	//TODO implement me
-	panic("implement me")
+func (tcp *TcpHandler) OnClose() error {
+	return tcp.conn.Close()
 }
 
-func (b *BaseProtocol) Listen(arg *ListenArg) {
-	//TODO implement me
-	panic("implement me")
+func (tcp *TcpHandler) Ctx() context.Context {
+	return tcp.ctx
 }
 
-func (b *BaseProtocol) SetData(packet proto.PacketI) *constdef.HyError {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (b *BaseProtocol) GetData() (*proto.BasePacket, *constdef.HyError) {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (b BaseProtocol) Stop(msg string) *constdef.HyError {
-	//TODO implement me
-	panic("implement me")
+func NewTcpHandler(ctx context.Context, conn hynet.IHyConn) *TcpHandler {
+	tcpHandler := &TcpHandler{}
+	tcpHandler.conn = conn
+	tcpHandler.ctx = ctx
+	return tcpHandler
 }

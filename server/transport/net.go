@@ -7,6 +7,11 @@ import (
 	"net"
 )
 
+type NssDataChannelListenerI interface {
+	net.Listener
+	Listen() error
+}
+
 type ConnListener struct {
 	streamListener net.Listener
 }

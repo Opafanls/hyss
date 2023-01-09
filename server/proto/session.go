@@ -1,8 +1,12 @@
 package proto
 
-import "github.com/Opafanls/hylan/server/constdef"
+import (
+	"context"
+	"github.com/Opafanls/hylan/server/constdef"
+)
 
 type SinkArg struct {
+	Ctx      context.Context
 	Protocol constdef.SinkType
 	SinkFile *SinkFile
 	SinkRtmp *SinkRtmp

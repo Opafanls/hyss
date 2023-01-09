@@ -2,39 +2,51 @@ package transport
 
 import (
 	"context"
+	"github.com/Opafanls/hylan/server/core/hynet"
+	"github.com/Opafanls/hylan/server/log"
 	"io"
-	"net"
 )
 
 type Transport interface {
 	Close(ctx context.Context, reason string) error
-	Recv(ctx context.Context, recvData []byte) (int64, error)
-	Send(ctx context.Context, sendData []byte, offset int64, len int64) (int64, error)
-	GetConn() io.ReadWriteCloser
+	Recv(ctx context.Context) ([]byte, error)
+	Send(ctx context.Context, sendData []byte) error
+	GetConn() io.ReadWriter
 }
 
 type TcpTransport struct {
-	Conn net.Conn
+	Conn hynet.IHyConn
 }
 
 type UdpTransport struct {
 }
 
 func (t *TcpTransport) Close(ctx context.Context, reason string) error {
-	//TODO implement me
-	panic("implement me")
+	err := t.Conn.Close()
+	log.Infof(ctx, "tcp transport closed %s with err: %+v", reason, err)
+	return err
 }
 
-func (t *TcpTransport) Recv(ctx context.Context, recvData []byte) (int64, error) {
-	//TODO implement me
-	panic("implement me")
+func (t *TcpTransport) Recv(ctx context.Context) ([]byte, error) {
+	var data = make([]byte, 1024)
+	readLen, err := t.Conn.Read(data)
+	if err != nil {
+		return nil, err
+	}
+	return data[:readLen], nil
 }
 
-func (t *TcpTransport) Send(ctx context.Context, sendData []byte, offset int64, len int64) (int64, error) {
-	//TODO implement me
-	panic("implement me")
+func (t *TcpTransport) Send(ctx context.Context, sendData []byte) error {
+	sendLen, err := t.Conn.Write(sendData)
+	if err != nil {
+		return err
+	}
+	if len(sendData) != sendLen {
+		log.Errorf(ctx, "send len not full")
+	}
+	return nil
 }
 
-func (t *TcpTransport) GetConn() io.ReadWriteCloser {
+func (t *TcpTransport) GetConn() io.ReadWriter {
 	return t.Conn
 }
