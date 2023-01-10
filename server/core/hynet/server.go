@@ -1,10 +1,16 @@
 package hynet
 
-import "net"
+import (
+	"context"
+	"github.com/Opafanls/hylan/server/log"
+	"github.com/Opafanls/hylan/server/task"
+	"net"
+)
 
 type ListenServer interface {
-	Listen() error
+	Start() error
 	Init() error
+	Close()
 }
 
 type TcpListenServer interface {
@@ -26,6 +32,7 @@ type DataHandler interface {
 }
 
 type TcpServer struct {
+	ctx  context.Context
 	ip   string
 	port int
 
@@ -34,16 +41,21 @@ type TcpServer struct {
 
 	conn         chan IHyConn
 	connChanSize int
+
+	ConnHandler ConnHandler
+
+	stop chan struct{}
 }
 
-func NewTcpServer(ip string, port int) *TcpServer {
+func NewTcpServer(ctx context.Context, ip string, port int) *TcpServer {
 	s := &TcpServer{}
+	s.ctx = ctx
 	s.ip = ip
 	s.port = port
 	return s
 }
 
-func (tcpServer *TcpServer) Listen() error {
+func (tcpServer *TcpServer) Start() error {
 	addr := net.TCPAddr{
 		IP:   net.ParseIP(tcpServer.ip),
 		Port: tcpServer.port,
@@ -53,6 +65,10 @@ func (tcpServer *TcpServer) Listen() error {
 		return err
 	}
 	tcpServer.listener = listener
+	task.SubmitTask0(tcpServer.ctx, func() {
+		log.Infof(context.Background(), "listen rtmp server@%s:%d", tcpServer.ip, tcpServer.port)
+		tcpServer.Accept()
+	})
 	return nil
 }
 
@@ -71,20 +87,16 @@ func (tcpServer *TcpServer) Accept() {
 		if err != nil {
 			continue
 		}
-		tcpServer.HandleConn(NewHyConn(conn))
-	}
-}
-
-func (tcpServer *TcpServer) HandleConn(conn IHyConn) {
-	select {
-	case tcpServer.conn <- conn:
-	default:
-
+		tcpServer.ConnHandler.HandleConn(NewHyConn(conn))
 	}
 }
 
 func (tcpServer *TcpServer) Listener() net.Listener {
 	return tcpServer.listener
+}
+
+func (tcpServer *TcpServer) Close() {
+	tcpServer.stop <- struct{}{}
 }
 
 type UdpServer struct {
@@ -98,7 +110,7 @@ type UdpServer struct {
 	dataChanSize int
 }
 
-func (u *UdpServer) Listen() error {
+func (u *UdpServer) Start() error {
 	addr := net.UDPAddr{
 		Port: u.port,
 		IP:   net.ParseIP(u.ip),

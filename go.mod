@@ -18,5 +18,3 @@ require (
 	github.com/yutopp/go-amf0 v0.0.0-20180803120851-48851794bb1f // indirect
 	golang.org/x/sys v0.3.0 // indirect
 )
-
-replace github.com/notedit/rtmp => github.com/aler9/rtmp v0.0.0-20210403095203-3be4a5535927

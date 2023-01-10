@@ -15,21 +15,21 @@ func (l *Logrus) Init(param interface{}) error {
 }
 
 func (l *Logrus) Tracef(ctx context.Context, format string, args ...interface{}) {
-	l.l.Tracef(format, args...)
+	l.l.Tracef(getLogIDFormat(ctx, format), args...)
 }
 
 func (l *Logrus) Debugf(ctx context.Context, format string, args ...interface{}) {
-	l.l.Debugf(format, args...)
+	l.l.Debugf(getLogIDFormat(ctx, format), args...)
 }
 
 func (l *Logrus) Infof(ctx context.Context, format string, args ...interface{}) {
-	l.l.Infof(format, args...)
+	l.l.Infof(getLogIDFormat(ctx, format), args...)
 }
 
 func (l *Logrus) Warnf(ctx context.Context, format string, args ...interface{}) {
-	l.l.Warnf(format, args...)
+	l.l.Warnf(getLogIDFormat(ctx, format), args...)
 }
 
 func (l *Logrus) Errorf(ctx context.Context, format string, args ...interface{}) {
-	l.l.Errorf(format, args...)
+	l.l.Errorf(getLogIDFormat(ctx, format), args...)
 }

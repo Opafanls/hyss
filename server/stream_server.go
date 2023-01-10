@@ -4,6 +4,7 @@ import (
 	"github.com/Opafanls/hylan/server/core/hynet"
 	"github.com/Opafanls/hylan/server/protocol/rtmp"
 	"github.com/Opafanls/hylan/server/stream"
+	"github.com/Opafanls/hylan/server/task"
 )
 
 type HylanServer struct {
@@ -24,6 +25,7 @@ func (hy *HylanServer) Start() {
 
 func (hy *HylanServer) initBase() {
 	stream.InitHyStreamManager()
+	task.InitTaskSystem()
 }
 
 func (hy *HylanServer) initServer() {
@@ -39,7 +41,11 @@ func (hy *HylanServer) listeners() {
 	}
 
 	for _, listener := range listeners {
-		err := listener.Listen()
+		err := listener.Init()
+		if err != nil {
+			panic(err)
+		}
+		err = listener.Start()
 		if err != nil {
 			panic(err)
 		}

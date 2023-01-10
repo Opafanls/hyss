@@ -4,54 +4,43 @@ import (
 	"context"
 	"github.com/Opafanls/hylan/server/core/hynet"
 	"github.com/Opafanls/hylan/server/log"
-	"github.com/sirupsen/logrus"
-	"github.com/yutopp/go-rtmp"
-	"io"
-	"net"
+	"github.com/Opafanls/hylan/server/task"
 )
 
 // Server is a RTMP connection.
 type Server struct {
-	rtmpServer *rtmp.Server
-	config     *hynet.TcpListenConfig
+	ctx     context.Context
+	config  *hynet.TcpListenConfig
+	running bool
+	*hynet.TcpServer
 }
 
 func NewServer(config *hynet.TcpListenConfig) *Server {
 	s := &Server{}
-	srv := rtmp.NewServer(&rtmp.ServerConfig{
-		OnConnect: func(conn net.Conn) (io.ReadWriteCloser, *rtmp.ConnConfig) {
-			ctx := context.Background()
-			rt := NewRtmpHandler(ctx, hynet.NewHyConn(conn))
-			return conn, &rtmp.ConnConfig{
-				Handler: rt.rh,
-				ControlState: rtmp.StreamControlStateConfig{
-					DefaultBandwidthWindowSize: 6 * 1024 * 1024 / 8,
-				},
-				Logger: logrus.New(),
-			}
-		},
-	})
-	s.rtmpServer = srv
 	s.config = config
 	return s
 }
 
-func (s *Server) Listen() error {
-	addr := &net.TCPAddr{
-		IP:   net.ParseIP(s.config.Addr),
-		Port: s.config.Port,
-	}
-	ar := addr.String()
-	listener, err := net.Listen("tcp", ar)
-	if err != nil {
-		return err
-	}
-	ctx := context.Background()
-	log.Infof(ctx, "listen rtmp server@%s", ar)
-	return s.rtmpServer.Serve(listener)
+func (s *Server) Start() error {
+	s.TcpServer.ConnHandler = s
+	return s.TcpServer.Start()
 }
 
 func (s *Server) Init() error {
-
+	s.ctx = log.GetCtxWithLogID(context.Background(), "RTMP_SERVER")
+	tcpServer := hynet.NewTcpServer(s.ctx, s.config.Addr, s.config.Port)
+	s.TcpServer = tcpServer
+	if err := s.TcpServer.Init(); err != nil {
+		return err
+	}
+	s.running = true
 	return nil
+}
+
+func (s *Server) HandleConn(conn hynet.IHyConn) {
+	//accept tcp connection
+	task.SubmitTask0(s.ctx, func() {
+		rtmpHandler := NewRtmpHandler(log.GetCtxWithLogID(context.Background(), ""), conn)
+		rtmpHandler.OnInit()
+	})
 }
