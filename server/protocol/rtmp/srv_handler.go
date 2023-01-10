@@ -13,17 +13,19 @@ type Handler struct {
 }
 
 type rtmpMessageHandler struct {
-	handshake *handshake
+	handshake   *handshake
+	chunkStream *chunkStream
 }
 
 func NewRtmpHandler(ctx context.Context, conn hynet.IHyConn) *Handler {
 	rtmpHandler := &rtmpMessageHandler{}
-	rtmpHandler.handshake = NewHandshake()
+	rtmpHandler.handshake = newHandshake()
+	rtmpHandler.chunkStream = newChunkStream(conn)
 	h := &Handler{ctx: ctx, conn: conn, rtmpMessageHandler: rtmpHandler}
 	return h
 }
 
-func (h *Handler) OnInit() {
+func (h *Handler) OnInit() error {
 	var err error
 	defer func() {
 		if err != nil {
@@ -35,18 +37,15 @@ func (h *Handler) OnInit() {
 	}()
 	err = h.handshake()
 	if err != nil {
-		return
+		return err
 	}
+	return h.messageLoop()
 }
 
 func (h *Handler) handshake() error {
 	return h.rtmpMessageHandler.handshake.handshake(h.conn)
 }
 
-func (h *Handler) createStream() {
-
-}
-
-func (h *Handler) messageLoop() {
-
+func (h *Handler) messageLoop() error {
+	return h.rtmpMessageHandler.chunkStream.decodeChunkStream()
 }
