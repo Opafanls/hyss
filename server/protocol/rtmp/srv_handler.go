@@ -2,25 +2,36 @@ package rtmp
 
 import (
 	"context"
+	"fmt"
 	"github.com/Opafanls/hylan/server/core/hynet"
+	"github.com/Opafanls/hylan/server/core/pool"
 	"github.com/Opafanls/hylan/server/log"
+	"io"
 )
 
 type Handler struct {
 	ctx                context.Context
 	conn               hynet.IHyConn
-	rtmpMessageHandler *rtmpMessageHandler
+	rtmpMessageHandler *rtmpHandler
 }
 
-type rtmpMessageHandler struct {
+type rtmpHandler struct {
+	conn        hynet.IHyConn
 	handshake   *handshake
-	chunkStream *chunkStream
+	chunkState  *chunkState
+	chunkHeader *chunkHeader
+	chunkStream map[int]*chunkStream
+	poolBuf     pool.BufPool
 }
 
 func NewRtmpHandler(ctx context.Context, conn hynet.IHyConn) *Handler {
-	rtmpHandler := &rtmpMessageHandler{}
+	rtmpHandler := &rtmpHandler{}
 	rtmpHandler.handshake = newHandshake()
-	rtmpHandler.chunkStream = newChunkStream(conn)
+	rtmpHandler.chunkStream = make(map[int]*chunkStream)
+	rtmpHandler.chunkState = newChunkState()
+	rtmpHandler.chunkHeader = newChunkHeader()
+	rtmpHandler.conn = conn
+	rtmpHandler.poolBuf = pool.P()
 	h := &Handler{ctx: ctx, conn: conn, rtmpMessageHandler: rtmpHandler}
 	return h
 }
@@ -39,13 +50,53 @@ func (h *Handler) OnInit() error {
 	if err != nil {
 		return err
 	}
-	return h.messageLoop()
+	cs := h.rtmpMessageHandler.getChunkStream(h.ctx)
+	return cs.msgLoop()
 }
 
 func (h *Handler) handshake() error {
 	return h.rtmpMessageHandler.handshake.handshake(h.conn)
 }
 
-func (h *Handler) messageLoop() error {
-	return h.rtmpMessageHandler.chunkStream.decodeChunkStream()
+func (rh *rtmpHandler) decodeBasicHeader(buf []byte) error {
+	if len(buf) < 3 {
+		buf = make([]byte, 3)
+	}
+	_, err := io.ReadAtLeast(rh.conn, buf[:1], 1)
+	if err != nil {
+		return err
+	}
+	basicHeader := rh.chunkHeader.basicChunkHeader
+	basicHeader.fmt = format((buf[0] >> 6) & 0b0000_0011)
+	csID := int(buf[0] & 0b0011_1111)
+	switch csID {
+	case 0:
+		//1 byte
+		_, err = io.ReadAtLeast(rh.conn, buf[1:2], 1)
+		if err != nil {
+			return err
+		}
+		csID = int(buf[1]) + 64
+		break
+	case 1:
+		//2 bytes
+		_, err = io.ReadAtLeast(rh.conn, buf[1:], 2)
+		if err != nil {
+			return err
+		}
+		csID = int(buf[2])*256 + int(buf[1]) + 64
+		break
+	}
+	basicHeader.csID = csID
+	return nil
+}
+
+func (rh *rtmpHandler) getChunkStream(ctx context.Context) *chunkStream {
+	csID := rh.chunkHeader.basicChunkHeader.csID
+	cs, ok := rh.chunkStream[csID]
+	if !ok {
+		cs = newChunkStream(log.GetCtxWithLogID(ctx, fmt.Sprintf("cs_id:%d", csID)), rh.conn, rh)
+		rh.chunkStream[csID] = cs
+	}
+	return cs
 }

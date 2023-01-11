@@ -6,18 +6,33 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
+	"github.com/Opafanls/hylan/server/core/pool"
 	"github.com/Opafanls/hylan/server/log"
-	"github.com/yutopp/go-amf0"
+	"github.com/Opafanls/hylan/server/protocol/amf"
 	"io"
+	"net/url"
+	"strings"
 	"time"
 )
 
 const controlStreamID = 0
 const Version = 3
 
-type TypeID byte
+//The maximum chunk size defaults to 128 bytes,
+//but the client or the server can change this value, and updates its peer using this message
+const defaultMaxChunkSize = 128
 
+type TypeID byte
 type state string
+type format byte
+type rtmpCmd string
+
+const (
+	format0_timestamp_msglen_msgtypeid_msgstreamid format = iota
+	format1_timestamp_delta_and_msg_info
+	format2_only_timestamp_delta
+	format3_nothing
+)
 
 const (
 	TypeIDSetChunkSize            TypeID = 1
@@ -37,11 +52,25 @@ const (
 	TypeIDAggregateMessage        TypeID = 22
 )
 
-const (
-	uninitialized state = "Uninitialized"
-	versionSent   state = "versionSent"
-	ackSent       state = "ackSent"
-	handshakeDone state = "handshakeDone"
+var (
+	cmdConnect       rtmpCmd = "connect"
+	cmdFcpublish     rtmpCmd = "FCPublish"
+	cmdReleaseStream rtmpCmd = "releaseStream"
+	cmdCreateStream  rtmpCmd = "createStream"
+	cmdPublish       rtmpCmd = "publish"
+	cmdFCUnpublish   rtmpCmd = "FCUnpublish"
+	cmdDeleteStream  rtmpCmd = "deleteStream"
+	cmdPlay          rtmpCmd = "play"
+)
+
+var (
+	respResult     = "_result"
+	respError      = "_error"
+	onStatus       = "on_status"
+	publishStart   = "publish_start"
+	playStart      = "play_start"
+	connectSuccess = "connect_success"
+	onBWDone       = "on_bwdone"
 )
 
 type S0C0 struct {
@@ -180,53 +209,220 @@ func (hs *handshake) handshake(conn io.ReadWriter) error {
 	return nil
 }
 
-type chunkStream struct {
-	conn      io.ReadWriter
-	chunkData *chunkPayload
+type chunkState struct {
+	chunkSize           uint32
+	clientChunkSize     uint32
+	windowAckSize       uint32
+	clientWindowAckSize uint32
+	received            uint32
+	ackReceived         uint32
 }
 
-func newChunkStream(conn io.ReadWriter) *chunkStream {
+func newChunkState() *chunkState {
+	chunkState := &chunkState{
+		chunkSize:       128,
+		clientChunkSize: 128,
+	}
+	return chunkState
+}
+
+type chunkStream struct {
+	h          *rtmpHandler
+	ctx        context.Context
+	conn       io.ReadWriter
+	amfEncoder *amf.Encoder
+	amfDecoder *amf.Decoder
+
+	remain    uint32
+	all       bool
+	bufPool   pool.BufPool
+	chunkData bytes.Buffer
+
+	metadata map[string]interface{}
+
+	query url.Values
+}
+
+func newChunkStream(ctx context.Context, conn io.ReadWriter, h *rtmpHandler) *chunkStream {
 	cs := &chunkStream{}
 	cs.conn = conn
-	cs.chunkData = &chunkPayload{
-		chunkHeader: &chunkHeader{
-			basicChunkHeader: &basicChunkHeader{},
-			messageHeader:    &messageHeader{},
-		},
-		chunkData: &chunkData{
-			buf: make([]byte, 2048),
-		},
-	}
+	cs.amfDecoder = amf.NewDecoder()
+	cs.amfEncoder = amf.NewEncoder()
+	cs.ctx = ctx
+	cs.h = h
+	cs.bufPool = h.poolBuf
 	return cs
 }
 
-func (cs *chunkStream) decodeChunkStream() error {
-	buf := make([]byte, 64)
-	err := cs.decodeBasicHeader(nil)
-	if err != nil {
-		return err
+func (cs *chunkStream) msgLoop() error {
+	chunkSize := cs.h.chunkState.clientChunkSize
+	for {
+		err := cs.readChunk(chunkSize)
+		if err != nil {
+			return err
+		}
+		switch cs.h.chunkHeader.messageTypeID {
+		case TypeIDSetChunkSize:
+			break
+		case TypeIDAbortMessage:
+			break
+		case TypeIDAck:
+			break
+		case TypeIDUserCtrl:
+			break
+		case TypeIDWinAckSize:
+			break
+		case TypeIDSetPeerBandwidth:
+			break
+		case TypeIDCommandMessageAMF0:
+			return cs.handleAMF0()
+		}
 	}
-	err = cs.decodeMessageHeader(buf)
-	if err != nil {
-		return err
+}
+
+func (cs *chunkStream) readChunk(chunkSize uint32) error {
+	for !cs.all {
+		err := cs.h.decodeBasicHeader(nil)
+		if err != nil {
+			return err
+		}
+		err = cs.h.decodeMessageHeader(nil)
+		if err != nil {
+			return err
+		}
+		hd := cs.h.chunkHeader
+		if hd.fmt == format0_timestamp_msglen_msgtypeid_msgstreamid ||
+			hd.fmt == format1_timestamp_delta_and_msg_info {
+			cs.remain = hd.messageLen
+		}
+		readLen := cs.remain
+		if readLen > chunkSize {
+			readLen = chunkSize
+			cs.remain -= readLen
+		} else {
+			cs.remain = 0
+		}
+		buf, err := cs.bufPool.Make(int(readLen))
+		if err != nil {
+			return err
+		}
+		_, err = io.ReadAtLeast(cs.conn, buf, int(readLen))
+		if err != nil {
+			return err
+		}
+		if cs.remain == 0 {
+			cs.all = true
+		}
+		cs.chunkData.Write(buf)
 	}
-	//READ DATA
-	cd := cs.chunkData
-	chunkData0 := make([]byte, cd.messageLen)
-	_, err = io.ReadAtLeast(cs.conn, chunkData0, int(cd.messageLen))
-	if err != nil {
-		return err
-	}
-	log.Infof(context.Background(), "message %s", string(chunkData0))
-	switch cd.messageTypeID {
-	case TypeIDCommandMessageAMF0:
-		var object map[string]interface{}
-		d := amf0.NewDecoder(bytes.NewReader(chunkData0))
-		//netCmd := &NetConnectionConnectCommand{}
-		err := d.Decode(&object)
-		return err
-	}
+	cs.all = false
 	return nil
+}
+
+func (cs *chunkStream) handleAMF0() error {
+	data := cs.chunkData.Bytes()
+	decoded, err := cs.amfDecoder.DecodeBatch(bytes.NewReader(data), amf.AMF0)
+	log.Infof(cs.ctx, "decode data: %+v", decoded)
+	if err != nil && err != io.EOF {
+		return err
+	}
+	if len(decoded) == 0 {
+		log.Warnf(cs.ctx, "decoded msg is empty")
+		return nil
+	}
+	cmd, ok := decoded[0].(rtmpCmd)
+	if !ok {
+		return fmt.Errorf("decode cmd is not string, but %v", decoded[0])
+	}
+	switch cmd {
+	case cmdConnect:
+		cs.handleConnect(decoded[1:])
+	}
+
+	return nil
+}
+
+/**
++-----------+--------+-----------------------------+----------------+
+| Property  |  Type  |        Description          | Example Value  |
++-----------+--------+-----------------------------+----------------+
+|   app     | String | The Server application name |    testapp     |
+|           |        | the client is connected to. |                |
++-----------+--------+-----------------------------+----------------+
+| flashver  | String | Flash Player version. It is |    FMSc/1.0    |
+|           |        | the same string as returned |                |
+|           |        | by the ApplicationScript    |                |
+|           |        | getversion () function.     |                |
++-----------+--------+-----------------------------+----------------+
+|  swfUrl   | String | URL of the source SWF file  | file://C:/     |
+|           |        | making the connection.      | FlvPlayer.swf  |
++-----------+--------+-----------------------------+----------------+
+|  tcUrl    | String | URL of the Server.          | rtmp://local   |
+|           |        | It has the following format.| host:1935/test |
+|           |        | protocol://servername:port/ | app/instance1  |
+|           |        | appName/appInstance         |                |
++-----------+--------+-----------------------------+----------------+
+|  fpad     | Boolean| True if proxy is being used.| true or false  |
++-----------+--------+-----------------------------+----------------+
+|audioCodecs| Number | Indicates what audio codecs | SUPPORT_SND    |
+|           |        | the client supports.        | _MP3           |
++-----------+--------+-----------------------------+----------------+
+|videoCodecs| Number | Indicates what video codecs | SUPPORT_VID    |
+|           |        | are supported.              | _SORENSON      |
++-----------+--------+-----------------------------+----------------+
+|videoFunct-| Number | Indicates what special video| SUPPORT_VID    |
+|ion        |        | functions are supported.    | _CLIENT_SEEK   |
++-----------+--------+-----------------------------+----------------+
+|  pageUrl  | String | URL of the web page from    | http://        |
+|           |        | where the SWF file was      | somehost/      |
+|           |        | loaded.                     | sample.html    |
++-----------+--------+-----------------------------+----------------+
+| object    | Number | AMF encoding method.        |     AMF3       |
+| Encoding  |        |                             |                |
++-----------+--------+-----------------------------+----------------+
+*/
+func (cs *chunkStream) handleConnect(decoded []interface{}) error {
+	for _, de := range decoded {
+		switch de.(type) {
+		case float64:
+			break
+		case amf.Object:
+			obj := de.(amf.Object)
+			cs.metadata = obj
+			app := obj["app"]
+			if appStr, ok := app.(string); ok {
+				tmp := strings.Split(appStr, "/")
+				if len(tmp) != 2 {
+					return fmt.Errorf("invalid rtmp app %s", appStr)
+				}
+			} else {
+				return fmt.Errorf("invalid rtmp parse type app")
+			}
+			tcUrl := obj["tcUrl"]
+			if tcUrlStr, ok := tcUrl.(string); ok {
+				parsed, err := url.Parse(tcUrlStr)
+				if err != nil {
+					return fmt.Errorf("parse rtmp url err: %+v", err)
+				}
+				schema := parsed.Scheme
+				query := parsed.Query()
+				if schema != "rtmp" {
+					return fmt.Errorf("invalid schema %s", schema)
+				}
+				cs.query = query
+				cs.amfEncoder.EncodeAmf0(cs.conn)
+			} else {
+				return fmt.Errorf("invalid rtmp parse type tcUrl")
+			}
+			break
+		}
+	}
+
+	return nil
+}
+
+func (cs *chunkStream) writeChunk(chunkHeader *chunkHeader, chunkData []byte) {
+
 }
 
 /**
@@ -237,18 +433,20 @@ func (cs *chunkStream) decodeChunkStream() error {
 |<------------------- Chunk Header ----------------->|
 Chunk Format
 */
-type chunkPayload struct {
-	*chunkHeader
-	*chunkData
-}
-
 type chunkHeader struct {
 	*basicChunkHeader
 	*messageHeader
 }
 
+func newChunkHeader() *chunkHeader {
+	return &chunkHeader{
+		basicChunkHeader: &basicChunkHeader{},
+		messageHeader:    &messageHeader{},
+	}
+}
+
 type basicChunkHeader struct { //(1 to 3 bytes)
-	fmt  byte
+	fmt  format
 	csID int //[2,65599]
 }
 
@@ -260,54 +458,16 @@ type messageHeader struct { //(0, 3, 7, or 11 bytes)
 	messageStreamID uint32 //4byte
 }
 
-type chunkData struct { //(variable size):
-	buf []byte
-}
-
-func (cs *chunkStream) decodeBasicHeader(buf []byte) error {
-	if len(buf) < 3 {
-		buf = make([]byte, 3)
-	}
-	_, err := io.ReadAtLeast(cs.conn, buf[:1], 1)
-	if err != nil {
-		return err
-	}
-	basicHeader := cs.chunkData.basicChunkHeader
-	basicHeader.fmt = (buf[0] >> 6) & 0b0000_0011
-	csID := int(buf[0] & 0b0011_1111)
-	switch csID {
-	case 0:
-		//1 byte
-		_, err = io.ReadAtLeast(cs.conn, buf[1:2], 1)
-		if err != nil {
-			return err
-		}
-		csID = int(buf[1]) + 64
-		break
-	case 1:
-		//2 bytes
-		_, err = io.ReadAtLeast(cs.conn, buf[1:], 2)
-		if err != nil {
-			return err
-		}
-		csID = int(buf[2])*256 + int(buf[1]) + 64
-		break
-	}
-	basicHeader.csID = csID
-	cs.chunkData.basicChunkHeader = basicHeader
-	return nil
-}
-
-func (cs *chunkStream) decodeMessageHeader(buf []byte) error {
-	fmt0 := cs.chunkData.basicChunkHeader.fmt
+func (rh *rtmpHandler) decodeMessageHeader(buf []byte) error {
+	fmt0 := rh.chunkHeader.basicChunkHeader.fmt
 	switch fmt0 {
-	case 0:
-		return cs.decodeFmtType0(buf)
-	case 1:
-		return cs.decodeFmtType1(buf)
-	case 2:
-		return cs.decodeFmtType2(buf)
-	case 3:
+	case format0_timestamp_msglen_msgtypeid_msgstreamid:
+		return rh.decodeFmtType0(buf)
+	case format1_timestamp_delta_and_msg_info:
+		return rh.decodeFmtType1(buf)
+	case format2_only_timestamp_delta:
+		return rh.decodeFmtType2(buf)
+	case format3_nothing:
 		return nil
 	default:
 		return fmt.Errorf("invalid basic header fmt %d", fmt0)
@@ -326,15 +486,15 @@ func (cs *chunkStream) decodeMessageHeader(buf []byte) error {
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 Chunk Message Header - Type 0
 */
-func (cs *chunkStream) decodeFmtType0(buf []byte) error {
+func (rh *rtmpHandler) decodeFmtType0(buf []byte) error {
 	if len(buf) < 11 {
 		buf = make([]byte, 11)
 	}
-	_, err := io.ReadAtLeast(cs.conn, buf[:11], 11)
+	_, err := io.ReadAtLeast(rh.conn, buf[:11], 11)
 	if err != nil {
 		return err
 	}
-	mh := cs.chunkData.messageHeader
+	mh := rh.chunkHeader.messageHeader
 	buf0 := make([]byte, 4)
 	copy(buf0[1:], buf[:3]) // 24bits BE
 	mh.timestamp = binary.BigEndian.Uint32(buf0)
@@ -345,7 +505,7 @@ func (cs *chunkStream) decodeFmtType0(buf []byte) error {
 	mh.timestampDelta = 0
 	if mh.timestamp == 0xffffff {
 		cache32bits := make([]byte, 4)
-		_, err := io.ReadAtLeast(cs.conn, cache32bits, 4)
+		_, err := io.ReadAtLeast(rh.conn, cache32bits, 4)
 		if err != nil {
 			return err
 		}
@@ -365,15 +525,15 @@ func (cs *chunkStream) decodeFmtType0(buf []byte) error {
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 Chunk Message Header - Type 1
 */
-func (cs *chunkStream) decodeFmtType1(buf []byte) error {
+func (rh *rtmpHandler) decodeFmtType1(buf []byte) error {
 	if len(buf) < 7 {
 		buf = make([]byte, 7)
 	}
-	_, err := io.ReadAtLeast(cs.conn, buf, 7)
+	_, err := io.ReadAtLeast(rh.conn, buf, 7)
 	if err != nil {
 		return err
 	}
-	mh := cs.chunkData.messageHeader
+	mh := rh.chunkHeader.messageHeader
 	//stream id no change
 	mh.timestampDelta = binary.BigEndian.Uint32(buf[:3])
 	mh.messageLen = binary.BigEndian.Uint32(buf[3:6])
@@ -390,21 +550,16 @@ func (cs *chunkStream) decodeFmtType1(buf []byte) error {
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 Chunk Message Header - Type 2
 */
-func (cs *chunkStream) decodeFmtType2(buf []byte) error {
+func (rh *rtmpHandler) decodeFmtType2(buf []byte) error {
 	if len(buf) < 3 {
 		buf = make([]byte, 3)
 	}
-	_, err := io.ReadAtLeast(cs.conn, buf, 3)
+	_, err := io.ReadAtLeast(rh.conn, buf, 3)
 	if err != nil {
 		return err
 	}
-	mh := cs.chunkData.messageHeader
+	mh := rh.chunkHeader.messageHeader
 	mh.timestampDelta = binary.BigEndian.Uint32(buf[:3])
 	mh.timestamp += mh.timestampDelta
 	return nil
-}
-
-func (cs *chunkStream) readChunkData() {
-	//cd := cs.chunkData
-	//dataLen := cd.messageLen -
 }
