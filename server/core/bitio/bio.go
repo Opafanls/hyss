@@ -51,7 +51,6 @@ func WriteUintLE(writer io.Writer, v uint32, n int) (int, error) {
 	for i := 0; i < n; i++ {
 		b := byte(v) & 0xff
 		buf[i] = b
-		v = v >> 8
 	}
 	return writer.Write(buf)
 }
@@ -61,7 +60,6 @@ func WriteUintBE(writer io.Writer, v uint32, n int) (int, error) {
 	for i := 0; i < n; i++ {
 		b := byte(v>>uint32((n-i-1)<<3)) & 0xff
 		buf[i] = b
-		v = v >> 8
 	}
 	return writer.Write(buf)
 }

@@ -6,6 +6,7 @@ import (
 	"github.com/Opafanls/hylan/server/core/hynet"
 	"github.com/Opafanls/hylan/server/core/pool"
 	"github.com/Opafanls/hylan/server/log"
+	"github.com/Opafanls/hylan/server/protocol"
 	"io"
 )
 
@@ -22,6 +23,9 @@ type rtmpHandler struct {
 	chunkHeader *chunkHeader
 	chunkStream map[int]*chunkStream
 	poolBuf     pool.BufPool
+
+	transactionID int
+	streamID      int
 }
 
 func NewRtmpHandler(ctx context.Context, conn hynet.IHyConn) *Handler {
@@ -32,26 +36,31 @@ func NewRtmpHandler(ctx context.Context, conn hynet.IHyConn) *Handler {
 	rtmpHandler.chunkHeader = newChunkHeader()
 	rtmpHandler.conn = conn
 	rtmpHandler.poolBuf = pool.P()
+	rtmpHandler.streamID = 1
 	h := &Handler{ctx: ctx, conn: conn, rtmpMessageHandler: rtmpHandler}
 	return h
 }
 
-func (h *Handler) OnInit() error {
+func (h *Handler) OnInit(ctx context.Context) error {
 	var err error
-	defer func() {
-		if err != nil {
-			log.Errorf(h.ctx, "conn done with err: %+v", err)
-		} else {
-			log.Infof(h.ctx, "conn done with no err")
-		}
-		_ = h.conn.Close()
-	}()
+	h.ctx = ctx
 	err = h.handshake()
 	if err != nil {
 		return err
 	}
 	cs := h.rtmpMessageHandler.getChunkStream(h.ctx)
-	return cs.msgLoop()
+	log.Infof(h.ctx, "handshake done, get chunkStream %+v", cs)
+	err = cs.msgLoop()
+	return err
+}
+
+func (h *Handler) OnMedia(ctx context.Context, mediaType protocol.MediaDataType, data interface{}) error {
+
+	return nil
+}
+
+func (h *Handler) OnClose() error {
+	return h.conn.Close()
 }
 
 func (h *Handler) handshake() error {

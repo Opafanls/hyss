@@ -40,7 +40,16 @@ func (s *Server) Init() error {
 func (s *Server) HandleConn(conn hynet.IHyConn) {
 	//accept tcp connection
 	task.SubmitTask0(s.ctx, func() {
-		rtmpHandler := NewRtmpHandler(log.GetCtxWithLogID(context.Background(), ""), conn)
-		rtmpHandler.OnInit()
+		rtmpHandler := NewRtmpHandler(log.GetCtxWithLogID(s.ctx, ""), conn)
+		var err error
+		defer func() {
+			if err != nil {
+				log.Errorf(s.ctx, "conn done with err: %+v", err)
+			} else {
+				log.Infof(s.ctx, "conn done with no err")
+			}
+			_ = rtmpHandler.OnClose()
+		}()
+		err = rtmpHandler.OnInit(s.ctx)
 	})
 }

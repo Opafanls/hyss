@@ -26,6 +26,7 @@ const setChunkSize = 1024
 type TypeID byte
 type format byte
 type rtmpCmd string
+type LimitType byte
 
 const (
 	format0_timestamp_msglen_msgtypeid_msgstreamid format = iota
@@ -52,7 +53,7 @@ const (
 	TypeIDAggregateMessage        TypeID = 22
 )
 
-var (
+const (
 	cmdConnect       rtmpCmd = "connect"
 	cmdFcpublish     rtmpCmd = "FCPublish"
 	cmdReleaseStream rtmpCmd = "releaseStream"
@@ -61,9 +62,7 @@ var (
 	cmdFCUnpublish   rtmpCmd = "FCUnpublish"
 	cmdDeleteStream  rtmpCmd = "deleteStream"
 	cmdPlay          rtmpCmd = "play"
-)
 
-var (
 	respResult     = "_result"
 	respError      = "_error"
 	onStatus       = "onStatus"
@@ -71,6 +70,12 @@ var (
 	playStart      = "play_start"
 	connectSuccess = "connect_success"
 	onBWDone       = "on_bwdone"
+)
+
+const (
+	Hard LimitType = iota
+	Soft
+	Dynamic
 )
 
 type S0C0 struct {
@@ -136,16 +141,13 @@ func (s1 *S1C1) decode(conn io.Reader, buf []byte) error {
 }
 
 func (s2 *C2) decodeAndAuth(conn io.Reader, buf []byte) error {
-	_, err := io.ReadAtLeast(conn, buf, 1536)
+	_, err := io.ReadAtLeast(conn, buf[:1536], 1536)
 	if err != nil {
 		return err
 	}
-	b0 := buf[1534]
-	b1 := buf[1535]
 	//if !bytes.Equal(s2.serverSendRandom[:], buf[8:1536]) {
 	//	return fmt.Errorf("auth failed")
 	//}
-	log.Infof(context.Background(), "%+v %+v", b0, b1)
 	return nil
 }
 
@@ -274,6 +276,10 @@ func (cs *chunkStream) msgLoop() error {
 		case TypeIDAck:
 			break
 		case TypeIDUserCtrl:
+			err := cs.handleUserControl(cs.csBuffer.Bytes())
+			if err != nil {
+				return fmt.Errorf("handleUserControl err: %+v", err)
+			}
 			break
 		case TypeIDWinAckSize:
 
@@ -281,23 +287,40 @@ func (cs *chunkStream) msgLoop() error {
 		case TypeIDSetPeerBandwidth:
 			break
 		case TypeIDCommandMessageAMF0:
-			return cs.handleAMF0()
+			err := cs.handleAMF0() //encode map[server:hyss] failed: encode amf0: unable to create object from map
+			if err != nil {
+				return err
+			}
+			break
 		case TypeIDVideoMessage:
-			return cs.handleVideo()
+			err := cs.handleVideo()
+			if err != nil {
+				return err
+			}
+		default:
+			log.Infof(cs.ctx, "invalid message type %d", cs.h.chunkHeader.messageTypeID)
 		}
 	}
 }
 
+func (cs *chunkStream) handleUserControl(data []byte) error {
+
+	return nil
+}
+
 func (cs *chunkStream) readChunk(chunkSize uint32) error {
 	for !cs.all {
+		//log.Infof(cs.ctx, "start decode basic header")
 		err := cs.h.decodeBasicHeader(nil)
 		if err != nil {
 			return err
 		}
+		//log.Infof(cs.ctx, "decode basic header1 %+v", cs.h.chunkHeader)
 		err = cs.h.decodeMessageHeader(nil)
 		if err != nil {
 			return err
 		}
+		//log.Infof(cs.ctx, "decode basic header2 %+v", cs.h.chunkHeader)
 		hd := cs.h.chunkHeader
 		if hd.fmt == format0_timestamp_msglen_msgtypeid_msgstreamid ||
 			hd.fmt == format1_timestamp_delta_and_msg_info {
@@ -402,6 +425,7 @@ func (cs *chunkStream) handleConnect(decoded []interface{}) error {
 	for _, de := range decoded {
 		switch de.(type) {
 		case float64:
+			cs.h.transactionID = int(de.(float64))
 			break
 		case amf.Object:
 			obj := de.(amf.Object)
@@ -423,27 +447,33 @@ func (cs *chunkStream) handleConnect(decoded []interface{}) error {
 			}
 		}
 	}
-	err := cs.writeChunk(initControlMsg(TypeIDWinAckSize, 4, 2500000))
+	err := cs.writeChunk(initControlMsg(TypeIDWinAckSize, 4, 2500000, nil))
 	if err != nil {
 		return err
 	}
-
-	err = cs.writeChunk(initControlMsg(TypeIDSetPeerBandwidth, 5, 2500000<<2+2)) //2=dynamic
+	err = cs.writeChunk(initControlMsg(TypeIDSetPeerBandwidth, 5, 2500000, Dynamic)) //2=dynamic
 	if err != nil {
 		return err
 	}
-	err = cs.writeChunk(initControlMsg(TypeIDSetPeerBandwidth, 4, 1024))
+	err = cs.writeChunk(initControlMsg(TypeIDSetChunkSize, 4, 1024, nil))
 	if err != nil {
 		return err
 	}
 	h := cs.h.chunkHeader
-	msgMap := make(map[string]interface{})
-	msgMap["server"] = "hyss"
-	return cs.sendMsg(h.csID, h.messageStreamID, amf.AMF0, "_result", msgMap)
+	resp := make(amf.Object)
+	resp["fmsVer"] = "FMS/3,0,1,123"
+	resp["capabilities"] = 31
+
+	event := make(amf.Object)
+	event["level"] = "status"
+	event["code"] = "NetConnection.Connect.Success"
+	event["description"] = "Connection succeeded."
+	//event["objectEncoding"] = connServer.ConnInfo.ObjectEncoding
+	return cs.sendMsg(h.csID, h.messageStreamID, amf.AMF0, "_result", cs.h.transactionID, resp, event)
 }
 
 func (cs *chunkStream) handleReleaseStream(decoded []interface{}) error {
-
+	log.Infof(cs.ctx, "handleReleaseStream %+v", decoded)
 	return nil
 }
 
@@ -453,13 +483,44 @@ func (cs *chunkStream) handleFCPublish(decoded []interface{}) error {
 }
 
 func (cs *chunkStream) handleCreateStream(decoded []interface{}) error {
-
+	for _, v := range decoded {
+		switch v.(type) {
+		case string:
+			break
+		case float64:
+			cs.h.transactionID = int(v.(float64))
+			break
+		case amf.Object:
+			break
+		}
+	}
+	h := cs.h.chunkHeader
+	_ = cs.sendMsg(h.csID, h.messageStreamID, amf.AMF0, "_result", cs.h.transactionID, nil, cs.h.streamID)
 	return nil
 }
 
 func (cs *chunkStream) handlePublish(decoded []interface{}) error {
-
-	return nil
+	for k, v := range decoded {
+		switch v.(type) {
+		case string:
+			if k == 2 {
+				cs.metadata["publish.name"] = v.(string)
+			} else if k == 3 {
+				cs.metadata["publish.type"] = v.(string)
+			}
+		case float64:
+			id := int(v.(float64))
+			cs.h.transactionID = id
+		case amf.Object:
+		}
+	}
+	event := make(amf.Object)
+	event["level"] = "status"
+	event["code"] = "NetStream.Publish.Start"
+	event["description"] = "Start publishing."
+	h := cs.h
+	hd := h.chunkHeader
+	return cs.sendMsg(hd.csID, hd.messageStreamID, amf.AMF0, "onStatus", 0, nil, event)
 }
 
 func (cs *chunkStream) handleVideo() error {
@@ -598,16 +659,16 @@ func (cs *chunkStream) writeHeader(wh *chunkHeader) error {
 	if wh.messageLen > 0xffffff {
 		return fmt.Errorf("length=%d", wh.messageLen)
 	}
-	bitio.WriteUintBE(cs.conn, wh.messageLen, 3)
-	bitio.WriteBE(cs.conn, wh.messageTypeID)
+	_, _ = bitio.WriteUintBE(cs.conn, wh.messageLen, 3)
+	_, _ = bitio.WriteBE(cs.conn, byte(wh.messageTypeID))
 	if wh.fmt == 1 {
 		goto END
 	}
-	bitio.WriteLE(cs.conn, wh.messageStreamID)
+	_, _ = bitio.WriteLE(cs.conn, wh.messageStreamID)
 END:
 	//Extended Timestamp
 	if ts >= 0xffffff {
-		bitio.WriteBE(cs.conn, wh.timestamp)
+		_, _ = bitio.WriteBE(cs.conn, wh.timestamp)
 	}
 	return err
 }
@@ -639,7 +700,7 @@ func newChunkHeader() *chunkHeader {
 
 //size: msg size
 //val: msg val
-func initControlMsg(typeID TypeID, size, value uint32) *chunkPayload {
+func initControlMsg(typeID TypeID, size, value uint32, e interface{}) *chunkPayload {
 	if size < 4 {
 		panic("new control msg should be greater than 3")
 	}
@@ -658,6 +719,11 @@ func initControlMsg(typeID TypeID, size, value uint32) *chunkPayload {
 	cp.chunkHeader = h
 	cp.chunkData = make([]byte, size)
 	binary.BigEndian.PutUint32(cp.chunkData[:4], value)
+	switch size {
+	case 5:
+		cp.chunkData[4] = byte(e.(LimitType))
+		break
+	}
 	return cp
 }
 
@@ -751,8 +817,11 @@ func (rh *rtmpHandler) decodeFmtType1(buf []byte) error {
 	}
 	mh := rh.chunkHeader.messageHeader
 	//stream id no change
-	mh.timestampDelta = binary.BigEndian.Uint32(buf[:3])
-	mh.messageLen = binary.BigEndian.Uint32(buf[3:6])
+	tmp := make([]byte, 4)
+	copy(tmp[1:], buf[:3])
+	mh.timestampDelta = binary.BigEndian.Uint32(tmp)
+	copy(tmp[1:], buf[3:6])
+	mh.messageLen = binary.BigEndian.Uint32(tmp)
 	mh.messageTypeID = TypeID(buf[6])
 	mh.timestamp += mh.timestampDelta
 	return nil
@@ -775,7 +844,9 @@ func (rh *rtmpHandler) decodeFmtType2(buf []byte) error {
 		return err
 	}
 	mh := rh.chunkHeader.messageHeader
-	mh.timestampDelta = binary.BigEndian.Uint32(buf[:3])
+	tmp := make([]byte, 4)
+	copy(tmp[1:], buf[:3])
+	mh.timestampDelta = binary.BigEndian.Uint32(tmp)
 	mh.timestamp += mh.timestampDelta
 	return nil
 }
