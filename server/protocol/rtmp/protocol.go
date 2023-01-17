@@ -276,6 +276,7 @@ func (cs *chunkStream) msgLoop() error {
 		case TypeIDUserCtrl:
 			break
 		case TypeIDWinAckSize:
+
 			break
 		case TypeIDSetPeerBandwidth:
 			break
@@ -422,30 +423,23 @@ func (cs *chunkStream) handleConnect(decoded []interface{}) error {
 			}
 		}
 	}
-	chunk := initControlMsg(TypeIDWinAckSize, 4, 25000)
-	err := cs.writeChunk(chunk)
+	err := cs.writeChunk(initControlMsg(TypeIDWinAckSize, 4, 2500000))
 	if err != nil {
 		return err
 	}
-	chunk.messageTypeID = TypeIDSetPeerBandwidth
-	err = cs.writeChunk(chunk)
+
+	err = cs.writeChunk(initControlMsg(TypeIDSetPeerBandwidth, 5, 2500000<<2+2)) //2=dynamic
 	if err != nil {
 		return err
 	}
-	chunk.messageTypeID = TypeIDSetChunkSize
-	err = cs.writeChunk(chunk)
-	if err != nil {
-		return err
-	}
-	binary.BigEndian.PutUint32(chunk.chunkData, 1024)
-	err = cs.writeChunk(chunk)
+	err = cs.writeChunk(initControlMsg(TypeIDSetPeerBandwidth, 4, 1024))
 	if err != nil {
 		return err
 	}
 	h := cs.h.chunkHeader
 	msgMap := make(map[string]interface{})
 	msgMap["server"] = "hyss"
-	return cs.initMsg(h.csID, h.messageStreamID, amf.AMF0, "_result", msgMap)
+	return cs.sendMsg(h.csID, h.messageStreamID, amf.AMF0, "_result", msgMap)
 }
 
 func (cs *chunkStream) handleReleaseStream(decoded []interface{}) error {
@@ -473,7 +467,7 @@ func (cs *chunkStream) handleVideo() error {
 	return nil
 }
 
-func (cs *chunkStream) initMsg(csID int, streamID uint32, v amf.Version, args ...interface{}) error {
+func (cs *chunkStream) sendMsg(csID int, streamID uint32, v amf.Version, args ...interface{}) error {
 	for _, arg := range args {
 		_, err := cs.amfEncoder.Encode(cs.csBuffer, arg, v)
 		if err != nil {
@@ -553,7 +547,9 @@ func (cs *chunkStream) writeHeader(wh *chunkHeader) error {
 	case wh.csID < 64:
 		h |= byte(wh.csID)
 		_, err := bitio.WriteBE(cs.conn, h)
-		return err
+		if err != nil {
+			return err
+		}
 	case wh.csID-64 < 256:
 		h |= 0
 		_, err := bitio.WriteBE(cs.conn, byte(1))
@@ -655,7 +651,7 @@ func initControlMsg(typeID TypeID, size, value uint32) *chunkPayload {
 		messageHeader: &messageHeader{
 			messageLen:      size,
 			messageTypeID:   typeID,
-			messageStreamID: 0, //control stream
+			messageStreamID: controlStreamID, //control stream
 		},
 	}
 	cp := &chunkPayload{}

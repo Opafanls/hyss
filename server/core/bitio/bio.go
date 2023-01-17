@@ -47,7 +47,7 @@ func WriteLE(writer io.Writer, val interface{}) (int, error) {
 }
 
 func WriteUintLE(writer io.Writer, v uint32, n int) (int, error) {
-	buf := make([]byte, n, 0)
+	buf := make([]byte, 0, n)
 	for i := 0; i < n; i++ {
 		b := byte(v) & 0xff
 		buf[i] = b
@@ -57,7 +57,7 @@ func WriteUintLE(writer io.Writer, v uint32, n int) (int, error) {
 }
 
 func WriteUintBE(writer io.Writer, v uint32, n int) (int, error) {
-	buf := make([]byte, n, 0)
+	buf := make([]byte, n)
 	for i := 0; i < n; i++ {
 		b := byte(v>>uint32((n-i-1)<<3)) & 0xff
 		buf[i] = b
