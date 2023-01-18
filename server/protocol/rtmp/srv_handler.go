@@ -3,71 +3,68 @@ package rtmp
 import (
 	"context"
 	"fmt"
+	"github.com/Opafanls/hylan/server/base"
 	"github.com/Opafanls/hylan/server/core/hynet"
 	"github.com/Opafanls/hylan/server/core/pool"
 	"github.com/Opafanls/hylan/server/log"
 	"github.com/Opafanls/hylan/server/protocol"
+	"github.com/Opafanls/hylan/server/session"
 	"io"
 )
 
-type Handler struct {
-	ctx                context.Context
-	conn               hynet.IHyConn
-	rtmpMessageHandler *rtmpHandler
-}
-
-type rtmpHandler struct {
+type RtmpHandler struct {
+	*session.BaseHandler
+	ctx         context.Context
 	conn        hynet.IHyConn
+	sess        session.HySessionI
 	handshake   *handshake
 	chunkState  *chunkState
 	chunkHeader *chunkHeader
-	chunkStream map[int]*chunkStream
+	chunkStream *chunkStream
 	poolBuf     pool.BufPool
-
-	transactionID int
-	streamID      int
 }
 
-func NewRtmpHandler(ctx context.Context, conn hynet.IHyConn) *Handler {
-	rtmpHandler := &rtmpHandler{}
-	rtmpHandler.handshake = newHandshake()
-	rtmpHandler.chunkStream = make(map[int]*chunkStream)
-	rtmpHandler.chunkState = newChunkState()
-	rtmpHandler.chunkHeader = newChunkHeader()
-	rtmpHandler.conn = conn
-	rtmpHandler.poolBuf = pool.P()
-	rtmpHandler.streamID = 1
-	h := &Handler{ctx: ctx, conn: conn, rtmpMessageHandler: rtmpHandler}
-	return h
+func NewRtmpHandler(sess session.HySessionI) *RtmpHandler {
+	rh := &RtmpHandler{BaseHandler: &session.BaseHandler{}}
+	rh.handshake = newHandshake()
+	rh.chunkState = newChunkState()
+	rh.chunkHeader = newChunkHeader()
+	rh.conn = sess.GetConn()
+	rh.sess = sess
+	rh.poolBuf = pool.P()
+	rh.chunkState.streamID = 1
+	return rh
 }
 
-func (h *Handler) OnInit(ctx context.Context) error {
+func (rh *RtmpHandler) OnInit(ctx context.Context) error {
+	return nil
+}
+
+func (rh *RtmpHandler) OnStart(ctx context.Context, sess session.HySessionI) error {
 	var err error
-	h.ctx = ctx
-	err = h.handshake()
+	rh.ctx = ctx
+	rh.sess = sess
+	err = rh.handshake.handshake(rh.conn)
 	if err != nil {
 		return err
 	}
-	cs := h.rtmpMessageHandler.getChunkStream(h.ctx)
-	log.Infof(h.ctx, "handshake done, get chunkStream %+v", cs)
+	cs := rh.getChunkStream(rh.ctx)
+	log.Infof(rh.ctx, "handshake done, get chunkStream %+v", cs)
 	err = cs.msgLoop()
 	return err
 }
 
-func (h *Handler) OnMedia(ctx context.Context, mediaType protocol.MediaDataType, data interface{}) error {
+func (rh *RtmpHandler) OnMedia(ctx context.Context, mediaType protocol.MediaDataType, data interface{}) error {
 
 	return nil
 }
 
-func (h *Handler) OnClose() error {
-	return h.conn.Close()
+func (rh *RtmpHandler) OnStop() error {
+
+	return nil
 }
 
-func (h *Handler) handshake() error {
-	return h.rtmpMessageHandler.handshake.handshake(h.conn)
-}
-
-func (rh *rtmpHandler) decodeBasicHeader(buf []byte) error {
+func (rh *RtmpHandler) decodeBasicHeader(buf []byte) error {
 	if len(buf) < 3 {
 		buf = make([]byte, 3)
 	}
@@ -100,12 +97,29 @@ func (rh *rtmpHandler) decodeBasicHeader(buf []byte) error {
 	return nil
 }
 
-func (rh *rtmpHandler) getChunkStream(ctx context.Context) *chunkStream {
+func (rh *RtmpHandler) getChunkStream(ctx context.Context) *chunkStream {
 	csID := rh.chunkHeader.basicChunkHeader.csID
-	cs, ok := rh.chunkStream[csID]
-	if !ok {
-		cs = newChunkStream(log.GetCtxWithLogID(ctx, fmt.Sprintf("cs_id:%d", csID)), rh.conn, rh)
-		rh.chunkStream[csID] = cs
+	//cs, ok := rh.chunkStream[csID]
+	//if !ok {
+	//	cs = newChunkStream(log.GetCtxWithLogID(ctx, fmt.Sprintf("cs_id:%d", csID)), rh.conn, rh)
+	//	cs.chunkStreamID = csID
+	//	rh.chunkStream[csID] = cs
+	//}
+	if rh.chunkStream == nil {
+		cs := newChunkStream(log.GetCtxWithLogID(ctx, fmt.Sprintf("cs_id:%d", csID)), rh.conn, rh)
+		rh.chunkStream = cs
+		cs.chunkStreamID = csID
 	}
-	return cs
+	return rh.chunkStream
+}
+
+func (rh *RtmpHandler) onConnect(cs *chunkStream) {
+}
+
+func (rh *RtmpHandler) OnStreamPublish(ctx context.Context, info base.StreamBaseI, sess session.HySessionI) {
+	rh.BaseHandler.OnStreamPublish(ctx, info, sess)
+}
+
+func (rh *RtmpHandler) onMedia() {
+
 }

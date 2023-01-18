@@ -1,8 +1,8 @@
-package server
+package srv
 
 import (
+	"github.com/Opafanls/hylan/server/core/event"
 	"github.com/Opafanls/hylan/server/core/hynet"
-	"github.com/Opafanls/hylan/server/protocol/rtmp"
 	"github.com/Opafanls/hylan/server/stream"
 	"github.com/Opafanls/hylan/server/task"
 )
@@ -18,6 +18,8 @@ func NewHylanServer() *HylanServer {
 }
 
 func (hy *HylanServer) Start() {
+	task.InitTaskSystem() //init first
+	event.Init()
 	hy.initBase()
 	hy.initServer()
 	hy.wait()
@@ -25,7 +27,6 @@ func (hy *HylanServer) Start() {
 
 func (hy *HylanServer) initBase() {
 	stream.InitHyStreamManager()
-	task.InitTaskSystem()
 }
 
 func (hy *HylanServer) initServer() {
@@ -34,9 +35,13 @@ func (hy *HylanServer) initServer() {
 
 func (hy *HylanServer) listeners() {
 	listeners := []hynet.ListenServer{
-		rtmp.NewServer(&hynet.TcpListenConfig{
-			Addr: "",
+		NewServer(&hynet.TcpListenConfig{
+			Ip:   "",
 			Port: 1935,
+		}),
+		NewHttpServer(&hynet.HttpServeConfig{
+			Ip:   "",
+			Port: 6789,
 		}),
 	}
 

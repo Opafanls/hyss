@@ -1,6 +1,7 @@
 package stream
 
 import (
+	"encoding/json"
 	"github.com/Opafanls/hylan/server/base"
 	"github.com/Opafanls/hylan/server/session"
 	"net/url"
@@ -35,4 +36,11 @@ func (stream *HyStream) Base() base.StreamBaseI {
 
 func (stream *HyStream) Source() session.HySessionI {
 	return stream.SourceSession
+}
+
+func (stream *HyStream) MarshalJSON() ([]byte, error) {
+	m := make(map[string]interface{}, 2)
+	m["stream_info"] = stream.StreamBase
+	m["stream_sess"] = stream.SourceSession
+	return json.Marshal(m)
 }

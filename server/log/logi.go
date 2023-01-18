@@ -24,6 +24,7 @@ type ILog interface {
 	Infof(ctx context.Context, format string, args ...interface{})
 	Warnf(ctx context.Context, format string, args ...interface{})
 	Errorf(ctx context.Context, format string, args ...interface{})
+	Fatalf(ctx context.Context, format string, args ...interface{})
 }
 
 func Tracef(ctx context.Context, format string, args ...interface{}) {
@@ -40,6 +41,10 @@ func Warnf(ctx context.Context, format string, args ...interface{}) {
 }
 func Errorf(ctx context.Context, format string, args ...interface{}) {
 	MainLog.Errorf(ctx, format, args...)
+}
+
+func Fatalf(ctx context.Context, format string, args ...interface{}) {
+	MainLog.Fatalf(ctx, format, args...)
 }
 
 func GetEmptyCtx() context.Context {

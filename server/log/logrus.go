@@ -33,3 +33,7 @@ func (l *Logrus) Warnf(ctx context.Context, format string, args ...interface{}) 
 func (l *Logrus) Errorf(ctx context.Context, format string, args ...interface{}) {
 	l.l.Errorf(getLogIDFormat(ctx, format), args...)
 }
+
+func (l *Logrus) Fatalf(ctx context.Context, format string, args ...interface{}) {
+	l.l.Fatalf(getLogIDFormat(ctx, format), args...)
+}

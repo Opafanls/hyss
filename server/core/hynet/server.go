@@ -60,6 +60,7 @@ func (tcpServer *TcpServer) Start() error {
 		IP:   net.ParseIP(tcpServer.ip),
 		Port: tcpServer.port,
 	}
+	tcpServer.running = true
 	listener, err := net.Listen("tcp", addr.String())
 	if err != nil {
 		return err

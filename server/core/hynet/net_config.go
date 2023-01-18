@@ -9,6 +9,11 @@ const (
 )
 
 type TcpListenConfig struct {
-	Addr string
+	Ip   string
+	Port int
+}
+
+type HttpServeConfig struct {
+	Ip   string
 	Port int
 }

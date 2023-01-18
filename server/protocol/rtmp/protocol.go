@@ -6,12 +6,14 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
+	"github.com/Opafanls/hylan/server/base"
 	"github.com/Opafanls/hylan/server/core/bitio"
 	"github.com/Opafanls/hylan/server/core/pool"
 	"github.com/Opafanls/hylan/server/log"
 	"github.com/Opafanls/hylan/server/protocol/amf"
 	"io"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -218,6 +220,9 @@ type chunkState struct {
 	clientWindowAckSize uint32
 	received            uint32
 	ackReceived         uint32
+
+	transactionID int
+	streamID      int
 }
 
 func newChunkState() *chunkState {
@@ -229,23 +234,21 @@ func newChunkState() *chunkState {
 }
 
 type chunkStream struct {
-	h          *rtmpHandler
-	ctx        context.Context
-	conn       io.ReadWriter
-	amfEncoder *amf.Encoder
-	amfDecoder *amf.Decoder
+	h             *RtmpHandler
+	ctx           context.Context
+	conn          io.ReadWriter
+	amfEncoder    *amf.Encoder
+	amfDecoder    *amf.Decoder
+	chunkStreamID int
+	remain        uint32
+	all           bool
+	bufPool       pool.BufPool
+	csBuffer      *bytes.Buffer
 
-	remain   uint32
-	all      bool
-	bufPool  pool.BufPool
-	csBuffer *bytes.Buffer
-
-	metadata map[string]interface{}
-
-	query url.Values
+	base base.StreamBaseI
 }
 
-func newChunkStream(ctx context.Context, conn io.ReadWriter, h *rtmpHandler) *chunkStream {
+func newChunkStream(ctx context.Context, conn io.ReadWriter, h *RtmpHandler) *chunkStream {
 	cs := &chunkStream{}
 	cs.conn = conn
 	cs.amfDecoder = amf.NewDecoder()
@@ -254,14 +257,15 @@ func newChunkStream(ctx context.Context, conn io.ReadWriter, h *rtmpHandler) *ch
 	cs.h = h
 	cs.bufPool = h.poolBuf
 	cs.csBuffer = bytes.NewBuffer(make([]byte, setChunkSize))
+	cs.base = base.NewEmptyBase()
 	return cs
 }
 
 func (cs *chunkStream) msgLoop() error {
-	chunkSize := cs.h.chunkState.clientChunkSize
 	for {
+		readChunkSize := cs.h.chunkState.clientChunkSize
 		cs.csBuffer.Reset()
-		err := cs.readChunk(chunkSize)
+		err := cs.readChunk(readChunkSize)
 		if err != nil {
 			return err
 		}
@@ -292,6 +296,8 @@ func (cs *chunkStream) msgLoop() error {
 				return err
 			}
 			break
+		case TypeIDAudioMessage:
+
 		case TypeIDVideoMessage:
 			err := cs.handleVideo()
 			if err != nil {
@@ -425,11 +431,10 @@ func (cs *chunkStream) handleConnect(decoded []interface{}) error {
 	for _, de := range decoded {
 		switch de.(type) {
 		case float64:
-			cs.h.transactionID = int(de.(float64))
+			cs.h.chunkState.transactionID = int(de.(float64))
 			break
 		case amf.Object:
 			obj := de.(amf.Object)
-			cs.metadata = obj
 			tcUrl := obj["tcUrl"]
 			if tcUrlStr, ok := tcUrl.(string); ok {
 				parsed, err := url.Parse(tcUrlStr)
@@ -437,11 +442,11 @@ func (cs *chunkStream) handleConnect(decoded []interface{}) error {
 					return fmt.Errorf("parse rtmp url err: %+v", err)
 				}
 				schema := parsed.Scheme
-				query := parsed.Query()
 				if schema != "rtmp" {
 					return fmt.Errorf("invalid schema %s", schema)
 				}
-				cs.query = query
+				cs.base.SetParam(base.ParamKeyVhost, parsed.Host)
+				cs.h.onConnect(cs)
 			} else {
 				return fmt.Errorf("invalid rtmp parse type tcUrl")
 			}
@@ -469,7 +474,7 @@ func (cs *chunkStream) handleConnect(decoded []interface{}) error {
 	event["code"] = "NetConnection.Connect.Success"
 	event["description"] = "Connection succeeded."
 	//event["objectEncoding"] = connServer.ConnInfo.ObjectEncoding
-	return cs.sendMsg(h.csID, h.messageStreamID, amf.AMF0, "_result", cs.h.transactionID, resp, event)
+	return cs.sendMsg(h.csID, h.messageStreamID, amf.AMF0, "_result", cs.h.chunkState.transactionID, resp, event)
 }
 
 func (cs *chunkStream) handleReleaseStream(decoded []interface{}) error {
@@ -478,7 +483,6 @@ func (cs *chunkStream) handleReleaseStream(decoded []interface{}) error {
 }
 
 func (cs *chunkStream) handleFCPublish(decoded []interface{}) error {
-
 	return nil
 }
 
@@ -488,15 +492,15 @@ func (cs *chunkStream) handleCreateStream(decoded []interface{}) error {
 		case string:
 			break
 		case float64:
-			cs.h.transactionID = int(v.(float64))
+			cs.h.chunkState.transactionID = int(v.(float64))
 			break
 		case amf.Object:
 			break
 		}
 	}
 	h := cs.h.chunkHeader
-	_ = cs.sendMsg(h.csID, h.messageStreamID, amf.AMF0, "_result", cs.h.transactionID, nil, cs.h.streamID)
-	return nil
+	s := cs.h.chunkState
+	return cs.sendMsg(h.csID, h.messageStreamID, amf.AMF0, "_result", s.transactionID, nil, s.streamID)
 }
 
 func (cs *chunkStream) handlePublish(decoded []interface{}) error {
@@ -504,13 +508,27 @@ func (cs *chunkStream) handlePublish(decoded []interface{}) error {
 		switch v.(type) {
 		case string:
 			if k == 2 {
-				cs.metadata["publish.name"] = v.(string)
+				//name and query
+				//stream?a=1&b=1
+				nameAndQuery := v.(string)
+				idx := strings.Index(nameAndQuery, "?")
+				if idx < 0 {
+					return fmt.Errorf("invalid name and query %s", nameAndQuery)
+				}
+				cs.base.SetParam(base.ParamKeyName, nameAndQuery[:idx])
+				parsedQuery, err := url.ParseQuery(nameAndQuery[idx+1:])
+				if err != nil {
+					return fmt.Errorf("parse query failed: %+v %s", err, nameAndQuery)
+				}
+				for k, v := range parsedQuery {
+					cs.base.SetParam(k, v[0])
+				}
 			} else if k == 3 {
-				cs.metadata["publish.type"] = v.(string)
+				cs.base.SetParam(base.ParamKeyApp, v.(string))
 			}
 		case float64:
 			id := int(v.(float64))
-			cs.h.transactionID = id
+			cs.h.chunkState.transactionID = id
 		case amf.Object:
 		}
 	}
@@ -520,6 +538,7 @@ func (cs *chunkStream) handlePublish(decoded []interface{}) error {
 	event["description"] = "Start publishing."
 	h := cs.h
 	hd := h.chunkHeader
+	cs.h.OnStreamPublish(cs.ctx, cs.base, cs.h.sess)
 	return cs.sendMsg(hd.csID, hd.messageStreamID, amf.AMF0, "onStatus", 0, nil, event)
 }
 
@@ -740,7 +759,7 @@ type messageHeader struct { //(0, 3, 7, or 11 bytes)
 	messageStreamID uint32 //4byte
 }
 
-func (rh *rtmpHandler) decodeMessageHeader(buf []byte) error {
+func (rh *RtmpHandler) decodeMessageHeader(buf []byte) error {
 	fmt0 := rh.chunkHeader.basicChunkHeader.fmt
 	switch fmt0 {
 	case format0_timestamp_msglen_msgtypeid_msgstreamid:
@@ -768,7 +787,7 @@ func (rh *rtmpHandler) decodeMessageHeader(buf []byte) error {
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 Chunk Message Header - Type 0
 */
-func (rh *rtmpHandler) decodeFmtType0(buf []byte) error {
+func (rh *RtmpHandler) decodeFmtType0(buf []byte) error {
 	if len(buf) < 11 {
 		buf = make([]byte, 11)
 	}
@@ -807,7 +826,7 @@ func (rh *rtmpHandler) decodeFmtType0(buf []byte) error {
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 Chunk Message Header - Type 1
 */
-func (rh *rtmpHandler) decodeFmtType1(buf []byte) error {
+func (rh *RtmpHandler) decodeFmtType1(buf []byte) error {
 	if len(buf) < 7 {
 		buf = make([]byte, 7)
 	}
@@ -835,7 +854,7 @@ func (rh *rtmpHandler) decodeFmtType1(buf []byte) error {
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 Chunk Message Header - Type 2
 */
-func (rh *rtmpHandler) decodeFmtType2(buf []byte) error {
+func (rh *RtmpHandler) decodeFmtType2(buf []byte) error {
 	if len(buf) < 3 {
 		buf = make([]byte, 3)
 	}

@@ -1,9 +1,10 @@
 package main
 
-import "github.com/Opafanls/hylan/server"
+import (
+	"github.com/Opafanls/hylan/server/srv"
+)
 
 func main() {
-	sv := server.NewHylanServer()
-
+	sv := srv.NewHylanServer()
 	sv.Start()
 }
