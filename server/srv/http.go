@@ -27,11 +27,15 @@ type HttpServer struct {
 	e *gin.Engine
 }
 
-func (h *HttpServer) Start() error {
+func (h *HttpServer) Name() string {
+	return "http_api"
+}
+
+func (h *HttpServer) Serve(tag string) error {
 	return h.e.Run(fmt.Sprintf("%s:%d", h.addr, h.port))
 }
 
-func (h *HttpServer) Init() error {
+func (h *HttpServer) Init(ch hynet.ConnHandler) error {
 	e := gin.Default()
 	h.e = e
 	v1 := e.Group("v1")

@@ -23,9 +23,10 @@ type Flushable interface {
 	Flush() error
 }
 
-func NewHyConn(conn net.Conn) IHyConn {
+func NewHyConn(ctx context.Context, conn net.Conn) IHyConn {
 	hyConn := &DefaultConn{}
 	hyConn.conn = conn
+	hyConn.ctx = ctx
 	return hyConn
 }
 

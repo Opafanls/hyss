@@ -8,6 +8,7 @@ require (
 	github.com/pion/rtp v1.7.13
 	github.com/pkg/errors v0.9.1
 	github.com/sirupsen/logrus v1.9.0
+	github.com/yutopp/go-flv v0.2.0
 )
 
 require (
@@ -24,6 +25,7 @@ require (
 	github.com/pelletier/go-toml/v2 v2.0.6 // indirect
 	github.com/pion/randutil v0.1.0 // indirect
 	github.com/ugorji/go/codec v1.2.7 // indirect
+	github.com/yutopp/go-amf0 v0.0.0-20180803120851-48851794bb1f // indirect
 	golang.org/x/crypto v0.0.0-20211215153901-e495a2d5b3d3 // indirect
 	golang.org/x/net v0.4.0 // indirect
 	golang.org/x/sys v0.3.0 // indirect

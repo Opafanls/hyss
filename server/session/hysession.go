@@ -15,6 +15,7 @@ import (
 )
 
 type HySessionI interface {
+	Ctx() context.Context
 	Cycle() error
 	SessionType() constdef.SessionType
 	Close() error
@@ -74,6 +75,10 @@ func NewHySession(ctx context.Context, sessionType constdef.SessionType, conn hy
 	return hySession
 }
 
+func (hy *HySession) Ctx() context.Context {
+	return hy.sessCtx
+}
+
 func (hy *HySession) Cycle() error {
 	var err error
 	defer func() {
@@ -86,11 +91,13 @@ func (hy *HySession) Cycle() error {
 		log.Fatalf(hy.sessCtx, "conn handler is nil")
 		return fmt.Errorf("conn handler is nil")
 	}
-	err = hy.protocolSession.OnStart(hy.sessCtx, hy)
+	var info base.StreamBaseI
+	info, err = hy.protocolSession.OnStart(hy.sessCtx, hy)
 	if err != nil {
 		return err
 	}
-	return nil
+	hy.base = info
+	return hy.protocolSession.OnStreamPublish(hy.sessCtx, info, hy)
 }
 
 func (hy *HySession) Close() error {
@@ -99,7 +106,7 @@ func (hy *HySession) Close() error {
 		log.Errorf(hy.sessCtx, "session close err: %+v", err)
 		return err
 	}
-	return nil
+	return event.PushEvent0(event.RemoveSession, hy.base.ID())
 }
 
 func (hy *HySession) GetConn() hynet.IHyConn {
@@ -151,19 +158,19 @@ type BaseHandler struct {
 }
 
 type ProtocolHandler interface {
-	OnInit(ctx context.Context) error                                                      //最基本的资源检查
-	OnStart(ctx context.Context, sess HySessionI) error                                    //开始协议通信
-	OnStreamPublish(ctx context.Context, info base.StreamBaseI, sess HySessionI)           //开始推流
-	OnMedia(ctx context.Context, mediaType protocol.MediaDataType, data interface{}) error //获取到流媒体数据
-	OnStop() error                                                                         //关闭通信
+	OnInit(ctx context.Context) error                                                  //最基本的资源检查
+	OnStart(ctx context.Context, sess HySessionI) (base.StreamBaseI, error)            //开始协议通信，握手之类的初始化工作
+	OnStreamPublish(ctx context.Context, info base.StreamBaseI, sess HySessionI) error //开始推流
+	OnMedia(ctx context.Context, w *protocol.MediaWrapper) error                       //获取到流媒体数据
+	OnStop() error                                                                     //关闭通信
 }
 
 func (b *BaseHandler) OnInit(ctx context.Context) error {
 	return nil
 }
 
-func (b *BaseHandler) OnStart(ctx context.Context, session HySessionI) error {
-	return nil
+func (b *BaseHandler) OnStart(ctx context.Context, sess HySessionI) (base.StreamBaseI, error) {
+	return nil, nil
 }
 
 func (b *BaseHandler) OnMedia(ctx context.Context, mediaType protocol.MediaDataType, data interface{}) error {
@@ -174,7 +181,11 @@ func (b *BaseHandler) OnStop() error {
 	return nil
 }
 
-func (b *BaseHandler) OnStreamPublish(ctx context.Context, info base.StreamBaseI, sess HySessionI) {
+//func (b *BaseHandler) OnPrepared(base.StreamBaseI) error {
+//	return nil
+//}
+
+func (b *BaseHandler) OnStreamPublish(ctx context.Context, info base.StreamBaseI, sess HySessionI) error {
 	sess.SetConfig(constdef.ConfigKeySessionBase, info)
 	err := event.PushEvent0(event.CreateSession, NewStreamEvent(info, sess))
 	if err != nil {
@@ -182,7 +193,7 @@ func (b *BaseHandler) OnStreamPublish(ctx context.Context, info base.StreamBaseI
 	} else {
 		log.Infof(ctx, "onPublish success %+v", info)
 	}
-	return
+	return err
 }
 
 func (hy *HySession) MarshalJSON() ([]byte, error) {

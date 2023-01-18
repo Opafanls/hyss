@@ -8,8 +8,9 @@ import (
 )
 
 type ListenServer interface {
-	Start() error
-	Init() error
+	Name() string
+	Init(ConnHandler) error
+	Serve(tag string) error
 	Close()
 }
 
@@ -24,11 +25,11 @@ type UdpListenServer interface {
 }
 
 type ConnHandler interface {
-	HandleConn(conn IHyConn)
+	ServeConn(tag string, conn IHyConn)
 }
 
 type DataHandler interface {
-	HandleData(data []byte)
+	ServeData(data []byte)
 }
 
 type TcpServer struct {
@@ -45,17 +46,24 @@ type TcpServer struct {
 	ConnHandler ConnHandler
 
 	stop chan struct{}
+
+	tag string
 }
 
-func NewTcpServer(ctx context.Context, ip string, port int) *TcpServer {
+func NewTcpServer(ctx context.Context, ip string, port int, tag string) *TcpServer {
 	s := &TcpServer{}
 	s.ctx = ctx
 	s.ip = ip
 	s.port = port
+	s.tag = tag
 	return s
 }
 
-func (tcpServer *TcpServer) Start() error {
+func (tcpServer *TcpServer) Name() string {
+	return tcpServer.tag
+}
+
+func (tcpServer *TcpServer) Serve(tag string) error {
 	addr := net.TCPAddr{
 		IP:   net.ParseIP(tcpServer.ip),
 		Port: tcpServer.port,
@@ -73,11 +81,12 @@ func (tcpServer *TcpServer) Start() error {
 	return nil
 }
 
-func (tcpServer *TcpServer) Init() error {
+func (tcpServer *TcpServer) Init(ch ConnHandler) error {
 	tcpServer.running = true
 	if tcpServer.connChanSize == 0 {
 		tcpServer.connChanSize = 1024
 	}
+	tcpServer.ConnHandler = ch
 	tcpServer.conn = make(chan IHyConn, tcpServer.connChanSize)
 	return nil
 }
@@ -88,7 +97,7 @@ func (tcpServer *TcpServer) Accept() {
 		if err != nil {
 			continue
 		}
-		tcpServer.ConnHandler.HandleConn(NewHyConn(conn))
+		tcpServer.ConnHandler.ServeConn(tcpServer.Name(), NewHyConn(context.Background(), conn))
 	}
 }
 
@@ -133,7 +142,7 @@ func (u *UdpServer) Init() error {
 	return nil
 }
 
-func (u *UdpServer) HandleData(data []byte) {
+func (u *UdpServer) ServeData(data []byte) {
 	for u.running {
 		select {
 		case u.dataChan <- data:

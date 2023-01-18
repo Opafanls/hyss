@@ -35,8 +35,8 @@ func (c *ConnListener) TcpListen(ip string, port int, handler func(ctx context.C
 			log.Errorf(log.GetEmptyCtx(), "accept conn failed: %+v", err)
 			continue
 		}
-		handler(log.GetCtxWithLogID(context.Background(), conn.RemoteAddr().String()),
-			&TcpTransport{Conn: hynet.NewHyConn(conn)})
+		ctx := log.GetCtxWithLogID(context.Background(), conn.RemoteAddr().String())
+		handler(ctx, &TcpTransport{Conn: hynet.NewHyConn(ctx, conn)})
 	}
 	return nil
 }

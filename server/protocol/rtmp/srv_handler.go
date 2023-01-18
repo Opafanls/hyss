@@ -22,6 +22,8 @@ type RtmpHandler struct {
 	chunkHeader *chunkHeader
 	chunkStream *chunkStream
 	poolBuf     pool.BufPool
+
+	published bool
 }
 
 func NewRtmpHandler(sess session.HySessionI) *RtmpHandler {
@@ -40,21 +42,24 @@ func (rh *RtmpHandler) OnInit(ctx context.Context) error {
 	return nil
 }
 
-func (rh *RtmpHandler) OnStart(ctx context.Context, sess session.HySessionI) error {
+func (rh *RtmpHandler) OnStart(ctx context.Context, sess session.HySessionI) (base.StreamBaseI, error) {
 	var err error
 	rh.ctx = ctx
 	rh.sess = sess
 	err = rh.handshake.handshake(rh.conn)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	cs := rh.getChunkStream(rh.ctx)
 	log.Infof(rh.ctx, "handshake done, get chunkStream %+v", cs)
-	err = cs.msgLoop()
-	return err
+	err = cs.msgLoop(false)
+	if err != nil {
+		return nil, err
+	}
+	return rh.chunkStream.base, nil
 }
 
-func (rh *RtmpHandler) OnMedia(ctx context.Context, mediaType protocol.MediaDataType, data interface{}) error {
+func (rh *RtmpHandler) OnMedia(ctx context.Context, w *protocol.MediaWrapper) error {
 
 	return nil
 }
@@ -116,10 +121,11 @@ func (rh *RtmpHandler) getChunkStream(ctx context.Context) *chunkStream {
 func (rh *RtmpHandler) onConnect(cs *chunkStream) {
 }
 
-func (rh *RtmpHandler) OnStreamPublish(ctx context.Context, info base.StreamBaseI, sess session.HySessionI) {
-	rh.BaseHandler.OnStreamPublish(ctx, info, sess)
-}
-
-func (rh *RtmpHandler) onMedia() {
-
+func (rh *RtmpHandler) OnStreamPublish(ctx context.Context, info base.StreamBaseI, sess session.HySessionI) error {
+	err := rh.BaseHandler.OnStreamPublish(ctx, info, sess)
+	if err != nil {
+		return err
+	}
+	rh.published = true
+	return rh.chunkStream.msgLoop(true)
 }

@@ -10,7 +10,8 @@ import (
 	"github.com/Opafanls/hylan/server/core/bitio"
 	"github.com/Opafanls/hylan/server/core/pool"
 	"github.com/Opafanls/hylan/server/log"
-	"github.com/Opafanls/hylan/server/protocol/amf"
+	"github.com/Opafanls/hylan/server/protocol"
+	"github.com/Opafanls/hylan/server/protocol/data/amf"
 	"io"
 	"net/url"
 	"strings"
@@ -261,8 +262,8 @@ func newChunkStream(ctx context.Context, conn io.ReadWriter, h *RtmpHandler) *ch
 	return cs
 }
 
-func (cs *chunkStream) msgLoop() error {
-	for {
+func (cs *chunkStream) msgLoop(publish bool) error {
+	for cs.h.published == publish {
 		readChunkSize := cs.h.chunkState.clientChunkSize
 		cs.csBuffer.Reset()
 		err := cs.readChunk(readChunkSize)
@@ -274,28 +275,26 @@ func (cs *chunkStream) msgLoop() error {
 			msg := cs.csBuffer.Bytes()
 			clientCs := binary.BigEndian.Uint32(msg[:4])
 			cs.h.chunkState.clientChunkSize = clientCs
-			break
+
 		case TypeIDAbortMessage:
-			break
+
 		case TypeIDAck:
-			break
+
 		case TypeIDUserCtrl:
-			err := cs.handleUserControl(cs.csBuffer.Bytes())
+			err := cs.handleUserControl()
 			if err != nil {
 				return fmt.Errorf("handleUserControl err: %+v", err)
 			}
-			break
+
 		case TypeIDWinAckSize:
 
-			break
 		case TypeIDSetPeerBandwidth:
-			break
+
 		case TypeIDCommandMessageAMF0:
-			err := cs.handleAMF0() //encode map[server:hyss] failed: encode amf0: unable to create object from map
+			err := cs.handleAMF0()
 			if err != nil {
 				return err
 			}
-			break
 		case TypeIDAudioMessage:
 
 		case TypeIDVideoMessage:
@@ -307,9 +306,10 @@ func (cs *chunkStream) msgLoop() error {
 			log.Infof(cs.ctx, "invalid message type %d", cs.h.chunkHeader.messageTypeID)
 		}
 	}
+	return nil
 }
 
-func (cs *chunkStream) handleUserControl(data []byte) error {
+func (cs *chunkStream) handleUserControl() error {
 
 	return nil
 }
@@ -382,7 +382,11 @@ func (cs *chunkStream) handleAMF0() error {
 	case cmdCreateStream:
 		return cs.handleCreateStream(decoded[1:])
 	case cmdPublish:
-		return cs.handlePublish(decoded[1:])
+		err := cs.handlePublish(decoded[1:])
+		if err != nil {
+			return err
+		}
+		cs.h.published = true
 	}
 
 	return nil
@@ -513,15 +517,17 @@ func (cs *chunkStream) handlePublish(decoded []interface{}) error {
 				nameAndQuery := v.(string)
 				idx := strings.Index(nameAndQuery, "?")
 				if idx < 0 {
-					return fmt.Errorf("invalid name and query %s", nameAndQuery)
-				}
-				cs.base.SetParam(base.ParamKeyName, nameAndQuery[:idx])
-				parsedQuery, err := url.ParseQuery(nameAndQuery[idx+1:])
-				if err != nil {
-					return fmt.Errorf("parse query failed: %+v %s", err, nameAndQuery)
-				}
-				for k, v := range parsedQuery {
-					cs.base.SetParam(k, v[0])
+					//no query
+					cs.base.SetParam(base.ParamKeyName, nameAndQuery)
+				} else {
+					cs.base.SetParam(base.ParamKeyName, nameAndQuery[:idx])
+					parsedQuery, err := url.ParseQuery(nameAndQuery[idx+1:])
+					if err != nil {
+						return fmt.Errorf("parse query failed: %+v %s", err, nameAndQuery)
+					}
+					for k, v := range parsedQuery {
+						cs.base.SetParam(k, v[0])
+					}
 				}
 			} else if k == 3 {
 				cs.base.SetParam(base.ParamKeyApp, v.(string))
@@ -538,13 +544,34 @@ func (cs *chunkStream) handlePublish(decoded []interface{}) error {
 	event["description"] = "Start publishing."
 	h := cs.h
 	hd := h.chunkHeader
-	cs.h.OnStreamPublish(cs.ctx, cs.base, cs.h.sess)
 	return cs.sendMsg(hd.csID, hd.messageStreamID, amf.AMF0, "onStatus", 0, nil, event)
 }
 
 func (cs *chunkStream) handleVideo() error {
-
-	return nil
+	data := cs.csBuffer.Bytes()
+	k1 := data[0]
+	var frameType protocol.FrameType
+	switch k1 >> 4 & 0x0F {
+	case 2:
+		frameType = protocol.P
+	case 1:
+		frameType = protocol.I
+	default:
+		frameType = protocol.B
+	}
+	var codec protocol.VCodec
+	switch k1 & 0x0F {
+	case 7:
+		codec = protocol.H264
+	default:
+		codec = protocol.Unknown2
+	}
+	return cs.h.OnMedia(cs.ctx, &protocol.MediaWrapper{
+		Data:          data[1:],
+		FrameType:     frameType,
+		VCodec:        codec,
+		MediaDataType: protocol.MediaDataTypeVideo,
+	})
 }
 
 func (cs *chunkStream) sendMsg(csID int, streamID uint32, v amf.Version, args ...interface{}) error {

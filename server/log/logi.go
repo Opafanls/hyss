@@ -83,6 +83,9 @@ func getLogIDFormat(ctx context.Context, oldFormat string) string {
 }
 
 func GetCtxWithLogID(parent context.Context, tag string) context.Context {
+	if parent == nil {
+		parent = context.Background()
+	}
 	ctx := context.WithValue(parent, LOG_KEY, generateLogID(tag))
 	return ctx
 }
