@@ -55,7 +55,8 @@ func (h *HttpServer) v1(v1 *gin.RouterGroup) {
 }
 
 func (h *HttpServer) listStreams(c *gin.Context) {
-	h.ok(c, stream.DefaultHyStreamManager.StreamFilter(nil))
+	r, _ := stream.DefaultHyStreamManager.StreamFilter(nil)
+	h.ok(c, r)
 }
 
 func (h *HttpServer) ok(c *gin.Context, data interface{}) {
@@ -64,7 +65,7 @@ func (h *HttpServer) ok(c *gin.Context, data interface{}) {
 
 func (h *HttpServer) ret(c *gin.Context, code int, msg string, data interface{}) {
 	c.JSON(code, gin.H{
-		"message": msg,
-		"data":    data,
+		"message":     msg,
+		"data_format": data,
 	})
 }

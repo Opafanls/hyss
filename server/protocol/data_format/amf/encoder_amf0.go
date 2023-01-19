@@ -174,7 +174,7 @@ func (e *Encoder) EncodeAmf0Object(w io.Writer, val Object, encodeMarker bool) (
 }
 
 // marker: 1 byte 0x05
-// no additional data
+// no additional data_format
 func (e *Encoder) EncodeAmf0Null(w io.Writer, encodeMarker bool) (n int, err error) {
 	if encodeMarker {
 		if err = WriteMarker(w, AMF0_NULL_MARKER); err != nil {
@@ -187,7 +187,7 @@ func (e *Encoder) EncodeAmf0Null(w io.Writer, encodeMarker bool) (n int, err err
 }
 
 // marker: 1 byte 0x06
-// no additional data
+// no additional data_format
 func (e *Encoder) EncodeAmf0Undefined(w io.Writer, encodeMarker bool) (n int, err error) {
 	if encodeMarker {
 		if err = WriteMarker(w, AMF0_UNDEFINED_MARKER); err != nil {
@@ -291,7 +291,7 @@ func (e *Encoder) EncodeAmf0LongString(w io.Writer, val string, encodeMarker boo
 }
 
 // marker: 1 byte 0x0d
-// no additional data
+// no additional data_format
 func (e *Encoder) EncodeAmf0Unsupported(w io.Writer, encodeMarker bool) (n int, err error) {
 	if encodeMarker {
 		if err = WriteMarker(w, AMF0_UNSUPPORTED_MARKER); err != nil {

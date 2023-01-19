@@ -47,21 +47,21 @@ func (d *Decoder) DecodeAmf3(r io.Reader) (interface{}, error) {
 }
 
 // marker: 1 byte 0x00
-// no additional data
+// no additional data_format
 func (d *Decoder) DecodeAmf3Undefined(r io.Reader, decodeMarker bool) (result interface{}, err error) {
 	err = AssertMarker(r, decodeMarker, AMF3_UNDEFINED_MARKER)
 	return
 }
 
 // marker: 1 byte 0x01
-// no additional data
+// no additional data_format
 func (d *Decoder) DecodeAmf3Null(r io.Reader, decodeMarker bool) (result interface{}, err error) {
 	err = AssertMarker(r, decodeMarker, AMF3_NULL_MARKER)
 	return
 }
 
 // marker: 1 byte 0x02
-// no additional data
+// no additional data_format
 func (d *Decoder) DecodeAmf3False(r io.Reader, decodeMarker bool) (result bool, err error) {
 	err = AssertMarker(r, decodeMarker, AMF3_FALSE_MARKER)
 	result = false
@@ -69,7 +69,7 @@ func (d *Decoder) DecodeAmf3False(r io.Reader, decodeMarker bool) (result bool, 
 }
 
 // marker: 1 byte 0x03
-// no additional data
+// no additional data_format
 func (d *Decoder) DecodeAmf3True(r io.Reader, decodeMarker bool) (result bool, err error) {
 	err = AssertMarker(r, decodeMarker, AMF3_TRUE_MARKER)
 	result = true
@@ -112,7 +112,7 @@ func (d *Decoder) DecodeAmf3Double(r io.Reader, decodeMarker bool) (result float
 
 // marker: 1 byte 0x06
 // format:
-// - u29 reference int. if reference, no more data. if not reference,
+// - u29 reference int. if reference, no more data_format. if not reference,
 //   length value of bytes to read to complete string.
 func (d *Decoder) DecodeAmf3String(r io.Reader, decodeMarker bool) (result string, err error) {
 	if err = AssertMarker(r, decodeMarker, AMF3_STRING_MARKER); err != nil {
@@ -147,7 +147,7 @@ func (d *Decoder) DecodeAmf3String(r io.Reader, decodeMarker bool) (result strin
 
 // marker: 1 byte 0x08
 // format:
-// - u29 reference int, if reference, no more data
+// - u29 reference int, if reference, no more data_format
 // - timestamp double
 func (d *Decoder) DecodeAmf3Date(r io.Reader, decodeMarker bool) (result time.Time, err error) {
 	if err = AssertMarker(r, decodeMarker, AMF3_DATE_MARKER); err != nil {
@@ -185,7 +185,7 @@ func (d *Decoder) DecodeAmf3Date(r io.Reader, decodeMarker bool) (result time.Ti
 
 // marker: 1 byte 0x09
 // format:
-// - u29 reference int. if reference, no more data.
+// - u29 reference int. if reference, no more data_format.
 // - string representing associative array if present
 // - n values (length of u29)
 func (d *Decoder) DecodeAmf3Array(r io.Reader, decodeMarker bool) (result Array, err error) {
@@ -348,7 +348,7 @@ func (d *Decoder) DecodeAmf3Object(r io.Reader, decodeMarker bool) (result inter
 		obj[key] = val
 	}
 
-	// if an object is dynamic, it can have extra key/value data at the end. in this case,
+	// if an object is dynamic, it can have extra key/value data_format at the end. in this case,
 	// read keys until we get an empty one.
 	if trait.Dynamic {
 		for {
@@ -375,7 +375,7 @@ func (d *Decoder) DecodeAmf3Object(r io.Reader, decodeMarker bool) (result inter
 
 // marker: 1 byte 0x07 or 0x0b
 // format:
-// - u29 reference int. if reference, no more data. if not reference,
+// - u29 reference int. if reference, no more data_format. if not reference,
 //   length value of bytes to read to complete string.
 func (d *Decoder) DecodeAmf3Xml(r io.Reader, decodeMarker bool) (result string, err error) {
 	if decodeMarker {
@@ -425,7 +425,7 @@ func (d *Decoder) DecodeAmf3Xml(r io.Reader, decodeMarker bool) (result string, 
 
 // marker: 1 byte 0x0c
 // format:
-// - u29 reference int. if reference, no more data. if not reference,
+// - u29 reference int. if reference, no more data_format. if not reference,
 //   length value of bytes to read.
 func (d *Decoder) DecodeAmf3ByteArray(r io.Reader, decodeMarker bool) (result []byte, err error) {
 	if err = AssertMarker(r, decodeMarker, AMF3_BYTEARRAY_MARKER); err != nil {

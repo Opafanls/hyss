@@ -81,7 +81,7 @@ func (e *Encoder) EncodeAmf3(w io.Writer, val interface{}) (int, error) {
 }
 
 // marker: 1 byte 0x00
-// no additional data
+// no additional data_format
 func (e *Encoder) EncodeAmf3Undefined(w io.Writer, encodeMarker bool) (n int, err error) {
 	if encodeMarker {
 		if err = WriteMarker(w, AMF3_UNDEFINED_MARKER); err != nil {
@@ -94,7 +94,7 @@ func (e *Encoder) EncodeAmf3Undefined(w io.Writer, encodeMarker bool) (n int, er
 }
 
 // marker: 1 byte 0x01
-// no additional data
+// no additional data_format
 func (e *Encoder) EncodeAmf3Null(w io.Writer, encodeMarker bool) (n int, err error) {
 	if encodeMarker {
 		if err = WriteMarker(w, AMF3_NULL_MARKER); err != nil {
@@ -107,7 +107,7 @@ func (e *Encoder) EncodeAmf3Null(w io.Writer, encodeMarker bool) (n int, err err
 }
 
 // marker: 1 byte 0x02
-// no additional data
+// no additional data_format
 func (e *Encoder) EncodeAmf3False(w io.Writer, encodeMarker bool) (n int, err error) {
 	if encodeMarker {
 		if err = WriteMarker(w, AMF3_FALSE_MARKER); err != nil {
@@ -120,7 +120,7 @@ func (e *Encoder) EncodeAmf3False(w io.Writer, encodeMarker bool) (n int, err er
 }
 
 // marker: 1 byte 0x03
-// no additional data
+// no additional data_format
 func (e *Encoder) EncodeAmf3True(w io.Writer, encodeMarker bool) (n int, err error) {
 	if encodeMarker {
 		if err = WriteMarker(w, AMF3_TRUE_MARKER); err != nil {
@@ -171,7 +171,7 @@ func (e *Encoder) EncodeAmf3Double(w io.Writer, val float64, encodeMarker bool) 
 
 // marker: 1 byte 0x06
 // format:
-// - u29 reference int. if reference, no more data. if not reference,
+// - u29 reference int. if reference, no more data_format. if not reference,
 //   length value of bytes to read to complete string.
 func (e *Encoder) EncodeAmf3String(w io.Writer, val string, encodeMarker bool) (n int, err error) {
 	if encodeMarker {
@@ -194,7 +194,7 @@ func (e *Encoder) EncodeAmf3String(w io.Writer, val string, encodeMarker bool) (
 
 // marker: 1 byte 0x08
 // format:
-// - u29 reference int, if reference, no more data
+// - u29 reference int, if reference, no more data_format
 // - timestamp double
 func (e *Encoder) EncodeAmf3Date(w io.Writer, val time.Time, encodeMarker bool) (n int, err error) {
 	if encodeMarker {
@@ -221,7 +221,7 @@ func (e *Encoder) EncodeAmf3Date(w io.Writer, val time.Time, encodeMarker bool) 
 
 // marker: 1 byte 0x09
 // format:
-// - u29 reference int. if reference, no more data.
+// - u29 reference int. if reference, no more data_format.
 // - string representing associative array if present
 // - n values (length of u29)
 func (e *Encoder) EncodeAmf3Array(w io.Writer, val Array, encodeMarker bool) (n int, err error) {
@@ -362,7 +362,7 @@ func (e *Encoder) EncodeAmf3Object(w io.Writer, val TypedObject, encodeMarker bo
 
 // marker: 1 byte 0x0c
 // format:
-// - u29 reference int. if reference, no more data. if not reference,
+// - u29 reference int. if reference, no more data_format. if not reference,
 //   length value of bytes to read .
 func (e *Encoder) EncodeAmf3ByteArray(w io.Writer, val []byte, encodeMarker bool) (n int, err error) {
 	if encodeMarker {

@@ -2,20 +2,19 @@ package rtmp
 
 import (
 	"context"
+	"fmt"
 	"github.com/Opafanls/hylan/server/base"
+	"github.com/Opafanls/hylan/server/constdef"
 	"github.com/Opafanls/hylan/server/core/hynet"
 	"github.com/Opafanls/hylan/server/core/pool"
-	"github.com/Opafanls/hylan/server/model"
-	"github.com/Opafanls/hylan/server/protocol/data/amf"
+	"github.com/Opafanls/hylan/server/protocol/data_format/amf"
 	"github.com/Opafanls/hylan/server/session"
+	"github.com/Opafanls/hylan/server/stream"
 	"io"
 )
 
 type RtmpHandler struct {
 	*session.BaseHandler
-	ctx         context.Context
-	conn        hynet.IHyConn
-	sess        session.HySessionI
 	handshake   *handshake
 	chunkState  *chunkState
 	chunkHeader *chunkHeader
@@ -26,7 +25,6 @@ type RtmpHandler struct {
 
 	connDone bool
 	publish  bool
-	base     base.StreamBaseI
 }
 
 func NewRtmpHandler(sess session.HySessionI) *RtmpHandler {
@@ -34,26 +32,22 @@ func NewRtmpHandler(sess session.HySessionI) *RtmpHandler {
 	rh.handshake = newHandshake()
 	rh.chunkState = newChunkState()
 	rh.chunkHeader = newChunkHeader()
-	rh.conn = sess.GetConn()
-	rh.sess = sess
+	rh.Conn = sess.GetConn()
+	rh.Sess = sess
 	rh.poolBuf = pool.P()
 	rh.chunkState.streamID = 1
 	rh.chunkStream = make(map[int]*chunkStream)
 	rh.amfDecoder = amf.NewDecoder()
 	rh.amfEncoder = amf.NewEncoder()
-	rh.base = base.NewEmptyBase()
+	rh.Base = base.NewEmptyBase()
 	return rh
-}
-
-func (rh *RtmpHandler) OnInit(ctx context.Context) error {
-	return nil
 }
 
 func (rh *RtmpHandler) OnStart(ctx context.Context, sess session.HySessionI) (base.StreamBaseI, error) {
 	var err error
-	rh.ctx = ctx
-	rh.sess = sess
-	err = rh.handshake.handshake(rh.conn)
+	rh.Ctx = ctx
+	rh.Sess = sess
+	err = rh.handshake.handshake(rh.Conn)
 	if err != nil {
 		return nil, err
 	}
@@ -61,16 +55,12 @@ func (rh *RtmpHandler) OnStart(ctx context.Context, sess session.HySessionI) (ba
 	if err != nil {
 		return nil, err
 	}
-	return rh.base, nil
-}
-
-func (rh *RtmpHandler) OnMedia(ctx context.Context, w *model.Packet) error {
-	source := rh.sess
-	err := source.Push(ctx, w)
-	if err != nil {
-		return err.Err
+	if rh.publish {
+		sess.SetConfig(constdef.ConfigKeySessionType, constdef.SessionTypeRtmpSource)
+	} else {
+		sess.SetConfig(constdef.ConfigKeySessionType, constdef.SessionTypeRtmpSink)
 	}
-	return nil
+	return rh.Base, nil
 }
 
 func (rh *RtmpHandler) OnStop() error {
@@ -82,7 +72,7 @@ func (rh *RtmpHandler) decodeBasicHeader(buf []byte) error {
 	if len(buf) < 3 {
 		buf = make([]byte, 3)
 	}
-	_, err := io.ReadAtLeast(rh.conn, buf[:1], 1)
+	_, err := io.ReadAtLeast(rh.Conn, buf[:1], 1)
 	if err != nil {
 		return err
 	}
@@ -92,7 +82,7 @@ func (rh *RtmpHandler) decodeBasicHeader(buf []byte) error {
 	switch csID {
 	case 0:
 		//1 byte
-		_, err = io.ReadAtLeast(rh.conn, buf[1:2], 1)
+		_, err = io.ReadAtLeast(rh.Conn, buf[1:2], 1)
 		if err != nil {
 			return err
 		}
@@ -100,7 +90,7 @@ func (rh *RtmpHandler) decodeBasicHeader(buf []byte) error {
 		break
 	case 1:
 		//2 bytes
-		_, err = io.ReadAtLeast(rh.conn, buf[1:], 2)
+		_, err = io.ReadAtLeast(rh.Conn, buf[1:], 2)
 		if err != nil {
 			return err
 		}
@@ -114,11 +104,26 @@ func (rh *RtmpHandler) decodeBasicHeader(buf []byte) error {
 func (rh *RtmpHandler) onConnect(cs *chunkStream) {
 }
 
-func (rh *RtmpHandler) OnStreamPublish(ctx context.Context, info base.StreamBaseI, sess session.HySessionI) error {
-	err := rh.BaseHandler.OnStreamPublish(ctx, info, sess)
+func (rh *RtmpHandler) OnStreaming(ctx context.Context, info base.StreamBaseI, sess session.HySessionI) error {
+	//pub source stream to stream_center
+	err := rh.BaseHandler.OnStreaming(ctx, info, sess)
 	if err != nil {
 		return err
 	}
-	rh.connDone = true
-	return rh.msgLoop(true)
+	if rh.publish {
+		rh.connDone = true
+		return rh.msgLoop(true)
+	} else {
+		source := stream.DefaultHyStreamManager.GetStreamByID(info.ID())
+		if source == nil {
+			return fmt.Errorf("source not found")
+		}
+		remoteAddr, _ := sess.GetConn().GetConfig(hynet.RemoteAddr)
+		return source.Sink(&session.SinkArg{
+			Ctx:    ctx,
+			Sink:   session.NewBaseSink(info, fmt.Sprintf("rtmp_%s", remoteAddr)),
+			Remote: sess,
+			Local:  source.Source(),
+		})
+	}
 }

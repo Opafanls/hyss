@@ -11,9 +11,10 @@ import (
 )
 
 const (
-	ParamKeyVhost = "StreamBaseVhost"
-	ParamKeyApp   = "StreamBaseApp"
-	ParamKeyName  = "StreamBaseName"
+	ParamKeyVhost    = "StreamBaseVhost"
+	ParamKeyApp      = "StreamBaseApp"
+	ParamKeyName     = "StreamBaseName"
+	ParamKeyIsSource = "StreamBaseIsSource"
 )
 
 type StreamBaseI interface {

@@ -27,6 +27,7 @@ func NewHyConn(ctx context.Context, conn net.Conn) IHyConn {
 	hyConn := &DefaultConn{}
 	hyConn.conn = conn
 	hyConn.ctx = ctx
+	hyConn.config.Store(RemoteAddr, conn.RemoteAddr().String())
 	return hyConn
 }
 

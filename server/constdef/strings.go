@@ -1,8 +1,16 @@
 package constdef
 
-const (
-	ConfigKeyStreamBase = "stream_base"
-	ConfigKeyStreamSess = "stream_sess"
+type SessionConfigKey string
 
-	ConfigKeySessionBase = "session_base"
+const (
+	ConfigKeyStreamBase SessionConfigKey = "stream_base"
+	ConfigKeyStreamSess SessionConfigKey = "stream_sess"
+
+	ConfigKeySessionBase SessionConfigKey = "session_base"
+	ConfigKeyVideoCodec  SessionConfigKey = "video_codec"
+	ConfigKeyAudioCodec  SessionConfigKey = "audio_codec"
+
+	ConfigKeySessionType SessionConfigKey = "session_type"
+
+	ConfigKeySinkSourceSession SessionConfigKey = "config_sink_source_session"
 )

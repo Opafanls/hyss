@@ -6,6 +6,7 @@ const (
 	_ = iota
 	ReadTimeout
 	WriteTimeout
+	RemoteAddr
 )
 
 type TcpListenConfig struct {

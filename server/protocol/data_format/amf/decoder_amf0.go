@@ -151,14 +151,14 @@ func (d *Decoder) DecodeAmf0Object(r io.Reader, decodeMarker bool) (Object, erro
 }
 
 // marker: 1 byte 0x05
-// no additional data
+// no additional data_format
 func (d *Decoder) DecodeAmf0Null(r io.Reader, decodeMarker bool) (result interface{}, err error) {
 	err = AssertMarker(r, decodeMarker, AMF0_NULL_MARKER)
 	return
 }
 
 // marker: 1 byte 0x06
-// no additional data
+// no additional data_format
 func (d *Decoder) DecodeAmf0Undefined(r io.Reader, decodeMarker bool) (result interface{}, err error) {
 	err = AssertMarker(r, decodeMarker, AMF0_UNDEFINED_MARKER)
 	return
@@ -285,7 +285,7 @@ func (d *Decoder) DecodeAmf0LongString(r io.Reader, decodeMarker bool) (result s
 }
 
 // marker: 1 byte 0x0d
-// no additional data
+// no additional data_format
 func (d *Decoder) DecodeAmf0Unsupported(r io.Reader, decodeMarker bool) (result interface{}, err error) {
 	err = AssertMarker(r, decodeMarker, AMF0_UNSUPPORTED_MARKER)
 	return

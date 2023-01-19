@@ -15,6 +15,7 @@ const (
 	_ = iota
 	MediaDataTypeVideo
 	MediaDataTypeAudio
+	MediaDataTypeMetadata
 )
 
 type FrameType byte

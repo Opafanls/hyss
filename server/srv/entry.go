@@ -1,6 +1,7 @@
 package srv
 
 import (
+	"github.com/Opafanls/hylan/server/base"
 	"github.com/Opafanls/hylan/server/constdef"
 	"github.com/Opafanls/hylan/server/core/event"
 	"github.com/Opafanls/hylan/server/core/hynet"
@@ -67,23 +68,15 @@ func (hy *HylanServer) wait() {
 
 // ServeConn 所有tcp连接相关的请求都会统一打到这里
 func (hy *HylanServer) ServeConn(tag string, conn hynet.IHyConn) {
-	sess := session.NewHySession(conn.Ctx(), constdef.SessionTypeSource, conn, nil)
-	var h session.ProtocolHandler
-	switch tag {
-	case constdef.Rtmp:
-		h = rtmp.NewRtmpHandler(sess)
-	default:
-		log.Errorf(conn.Ctx(), "protocol not found %s", tag)
-	}
-	sess.SetHandler(h)
-	var err error
-	defer func() {
-		if err != nil {
-			log.Errorf(sess.Ctx(), "conn done with err: %+v", err)
-		} else {
-			log.Infof(sess.Ctx(), "conn done with no err")
+	task.SubmitTask0(conn.Ctx(), func() {
+		sess := session.NewHySession(conn.Ctx(), constdef.SessionTypeInvalid, conn, base.NewEmptyBase())
+		var h session.ProtocolHandler
+		switch tag {
+		case constdef.Rtmp:
+			h = rtmp.NewRtmpHandler(sess)
+		default:
+			log.Errorf(conn.Ctx(), "protocol not found %s", tag)
 		}
-		_ = sess.Close()
-	}()
-	err = sess.Cycle()
+		session.Serve(sess, h)
+	})
 }

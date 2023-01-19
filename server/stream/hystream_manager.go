@@ -10,11 +10,18 @@ import (
 	"sync"
 )
 
-var DefaultHyStreamManager *HyStreamManager
+var DefaultHyStreamManager HyStreamManagerI
+
+type HyStreamManagerI interface {
+	StreamFilter(interface{}) (interface{}, error)
+	AddStream(hyStream HyStreamI)
+	RemoveStream(streamBaseID string)
+	GetStreamByID(id string) HyStreamI
+}
 
 type HyStreamManager struct {
 	rwLock    *sync.RWMutex
-	streamMap map[string]*HyStream
+	streamMap map[string]HyStreamI
 }
 
 type streamHandler struct {
@@ -31,12 +38,12 @@ func InitHyStreamManager() {
 func NewHyStreamManager() *HyStreamManager {
 	HyStreamManager := &HyStreamManager{}
 	HyStreamManager.rwLock = &sync.RWMutex{}
-	HyStreamManager.streamMap = make(map[string]*HyStream)
+	HyStreamManager.streamMap = make(map[string]HyStreamI)
 	return HyStreamManager
 }
 
-func (streamManager *HyStreamManager) AddStream(hyStream *HyStream) {
-	id := hyStream.StreamBase.ID()
+func (streamManager *HyStreamManager) AddStream(hyStream HyStreamI) {
+	id := hyStream.Base().ID()
 	streamManager.rwLock.Lock()
 	streamManager.streamMap[id] = hyStream
 	streamManager.rwLock.Unlock()
@@ -48,16 +55,24 @@ func (streamManager *HyStreamManager) RemoveStream(streamBaseID string) {
 	streamManager.rwLock.Unlock()
 }
 
-func (streamManager *HyStreamManager) StreamFilter(filter map[string]string) interface{} {
+// StreamFilter for biz
+func (streamManager *HyStreamManager) StreamFilter(filter interface{}) (interface{}, error) {
 	if filter == nil {
 		//ret all streams
-		r := make(map[string]*HyStream, len(streamManager.streamMap))
+		r := make(map[string]interface{}, len(streamManager.streamMap))
 		for k, v := range streamManager.streamMap {
 			r[k] = v
 		}
-		return r
+		return r, nil
 	}
-	return nil
+	return nil, nil
+}
+
+func (streamManager *HyStreamManager) GetStreamByID(id string) HyStreamI {
+	streamManager.rwLock.RLock()
+	r := streamManager.streamMap[id]
+	streamManager.rwLock.RUnlock()
+	return r
 }
 
 func (s *streamHandler) Event() []event.HyEvent {
@@ -70,7 +85,7 @@ func (s *streamHandler) Event() []event.HyEvent {
 func (s *streamHandler) Handle(e event.HyEvent, data interface{}) {
 	switch e {
 	case event.CreateSession:
-		m := data.(map[string]interface{})
+		m := data.(map[constdef.SessionConfigKey]interface{})
 		baseI := m[constdef.ConfigKeyStreamBase].(base.StreamBaseI)
 		sess := m[constdef.ConfigKeyStreamSess].(session.HySessionI)
 		stream := NewHyStream(baseI, sess)

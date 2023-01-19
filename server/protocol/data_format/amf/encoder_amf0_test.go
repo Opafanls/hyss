@@ -198,13 +198,13 @@ func TestEncodeAmf0LongString(t *testing.T) {
 	for buf.Len() > 0 {
 		n, err := buf.Read(tmpBuf)
 		if err != nil {
-			t.Fatalf("test long string result check, read data(%d) error: %s, n: %d", counter, err, n)
+			t.Fatalf("test long string result check, read data_format(%d) error: %s, n: %d", counter, err, n)
 		}
 		if n != 8 {
-			t.Fatalf("test long string result check, read data(%d) n: %d", counter, n)
+			t.Fatalf("test long string result check, read data_format(%d) n: %d", counter, n)
 		}
 		if !bytes.Equal(testBytes, tmpBuf) {
-			t.Fatalf("test long string result check, read data % x", tmpBuf)
+			t.Fatalf("test long string result check, read data_format % x", tmpBuf)
 		}
 
 		counter++

@@ -19,3 +19,8 @@ type VideoPacketHeader struct {
 	FrameType constdef.FrameType
 	VCodec    constdef.VCodec
 }
+
+type KV struct {
+	K constdef.SessionConfigKey
+	V interface{}
+}
