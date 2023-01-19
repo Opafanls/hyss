@@ -2,12 +2,11 @@ package rtmp
 
 import (
 	"context"
-	"fmt"
 	"github.com/Opafanls/hylan/server/base"
 	"github.com/Opafanls/hylan/server/core/hynet"
 	"github.com/Opafanls/hylan/server/core/pool"
-	"github.com/Opafanls/hylan/server/log"
-	"github.com/Opafanls/hylan/server/protocol"
+	"github.com/Opafanls/hylan/server/model"
+	"github.com/Opafanls/hylan/server/protocol/data/amf"
 	"github.com/Opafanls/hylan/server/session"
 	"io"
 )
@@ -20,10 +19,14 @@ type RtmpHandler struct {
 	handshake   *handshake
 	chunkState  *chunkState
 	chunkHeader *chunkHeader
-	chunkStream *chunkStream
+	chunkStream map[int]*chunkStream
 	poolBuf     pool.BufPool
+	amfEncoder  *amf.Encoder
+	amfDecoder  *amf.Decoder
 
-	published bool
+	connDone bool
+	publish  bool
+	base     base.StreamBaseI
 }
 
 func NewRtmpHandler(sess session.HySessionI) *RtmpHandler {
@@ -35,6 +38,10 @@ func NewRtmpHandler(sess session.HySessionI) *RtmpHandler {
 	rh.sess = sess
 	rh.poolBuf = pool.P()
 	rh.chunkState.streamID = 1
+	rh.chunkStream = make(map[int]*chunkStream)
+	rh.amfDecoder = amf.NewDecoder()
+	rh.amfEncoder = amf.NewEncoder()
+	rh.base = base.NewEmptyBase()
 	return rh
 }
 
@@ -50,17 +57,19 @@ func (rh *RtmpHandler) OnStart(ctx context.Context, sess session.HySessionI) (ba
 	if err != nil {
 		return nil, err
 	}
-	cs := rh.getChunkStream(rh.ctx)
-	log.Infof(rh.ctx, "handshake done, get chunkStream %+v", cs)
-	err = cs.msgLoop(false)
+	err = rh.msgLoop(false)
 	if err != nil {
 		return nil, err
 	}
-	return rh.chunkStream.base, nil
+	return rh.base, nil
 }
 
-func (rh *RtmpHandler) OnMedia(ctx context.Context, w *protocol.MediaWrapper) error {
-
+func (rh *RtmpHandler) OnMedia(ctx context.Context, w *model.Packet) error {
+	source := rh.sess
+	err := source.Push(ctx, w)
+	if err != nil {
+		return err.Err
+	}
 	return nil
 }
 
@@ -78,8 +87,8 @@ func (rh *RtmpHandler) decodeBasicHeader(buf []byte) error {
 		return err
 	}
 	basicHeader := rh.chunkHeader.basicChunkHeader
-	basicHeader.fmt = format((buf[0] >> 6) & 0b0000_0011)
-	csID := int(buf[0] & 0b0011_1111)
+	basicHeader.fmt = format(buf[0] >> 6)
+	csID := int(buf[0] & 0x3f)
 	switch csID {
 	case 0:
 		//1 byte
@@ -102,22 +111,6 @@ func (rh *RtmpHandler) decodeBasicHeader(buf []byte) error {
 	return nil
 }
 
-func (rh *RtmpHandler) getChunkStream(ctx context.Context) *chunkStream {
-	csID := rh.chunkHeader.basicChunkHeader.csID
-	//cs, ok := rh.chunkStream[csID]
-	//if !ok {
-	//	cs = newChunkStream(log.GetCtxWithLogID(ctx, fmt.Sprintf("cs_id:%d", csID)), rh.conn, rh)
-	//	cs.chunkStreamID = csID
-	//	rh.chunkStream[csID] = cs
-	//}
-	if rh.chunkStream == nil {
-		cs := newChunkStream(log.GetCtxWithLogID(ctx, fmt.Sprintf("cs_id:%d", csID)), rh.conn, rh)
-		rh.chunkStream = cs
-		cs.chunkStreamID = csID
-	}
-	return rh.chunkStream
-}
-
 func (rh *RtmpHandler) onConnect(cs *chunkStream) {
 }
 
@@ -126,6 +119,6 @@ func (rh *RtmpHandler) OnStreamPublish(ctx context.Context, info base.StreamBase
 	if err != nil {
 		return err
 	}
-	rh.published = true
-	return rh.chunkStream.msgLoop(true)
+	rh.connDone = true
+	return rh.msgLoop(true)
 }

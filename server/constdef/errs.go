@@ -30,3 +30,8 @@ func (h *HyError) Error() string {
 	}
 	return fmt.Sprintf("Err:%+v;Msg:%s", h.Err, h.CtxMsg)
 }
+
+var (
+	SessionCannotPushMedia = NewHyErrorWithSimpleMsg(fmt.Errorf("session can not push media"))
+	SessionCannotPullMedia = NewHyErrorWithSimpleMsg(fmt.Errorf("session can not pull media"))
+)

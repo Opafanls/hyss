@@ -10,8 +10,7 @@ import (
 	"github.com/Opafanls/hylan/server/core/hynet"
 	"github.com/Opafanls/hylan/server/core/pb"
 	"github.com/Opafanls/hylan/server/log"
-	"github.com/Opafanls/hylan/server/proto"
-	"github.com/Opafanls/hylan/server/protocol"
+	"github.com/Opafanls/hylan/server/model"
 )
 
 type HySessionI interface {
@@ -24,17 +23,10 @@ type HySessionI interface {
 	GetConfig(key string) (interface{}, bool)
 	SetConfig(key string, val interface{})
 	Base() base.StreamBaseI
-}
-
-type SourceSessionI interface {
-	HySessionI
-	Push(ctx context.Context, pkt proto.PacketI)
-	Pull(ctx context.Context) (proto.PacketI, bool)
-	AddSink(arg *proto.SinkArg) HySessionI
-}
-
-type SinkSessionI interface {
-	HySessionI
+	//biz
+	Push(ctx context.Context, pkt *model.Packet) *constdef.HyError
+	Pull(ctx context.Context) (*model.Packet, bool, *constdef.HyError)
+	AddSink(arg *model.SinkArg) HySessionI
 }
 
 type HySession struct {
@@ -44,14 +36,7 @@ type HySession struct {
 	base            base.StreamBaseI
 	config          map[string]interface{}
 	hynet.IHyConn
-}
-
-type HySessionSource struct {
 	cache pb.CacheRing
-	*HySession
-}
-type HySessionSink struct {
-	*HySession
 }
 
 func NewHySession(ctx context.Context, sessionType constdef.SessionType, conn hynet.IHyConn, base base.StreamBaseI) HySessionI {
@@ -63,14 +48,9 @@ func NewHySession(ctx context.Context, sessionType constdef.SessionType, conn hy
 	}
 	hySession.IHyConn = conn
 	if sessionType == constdef.SessionTypeSource {
-		sourceSession := &HySessionSource{}
-		sourceSession.HySession = hySession
-		sourceSession.cache = pb.NewRing0(constdef.DefaultCacheSize)
-		return sourceSession
+		hySession.cache = pb.NewRing0(constdef.DefaultCacheSize)
 	} else if sessionType == constdef.SessionTypeSink {
-		sinkSession := &HySessionSink{}
-		sinkSession.HySession = hySession
-		return sinkSession
+
 	}
 	return hySession
 }
@@ -96,6 +76,9 @@ func (hy *HySession) Cycle() error {
 	if err != nil {
 		return err
 	}
+	if info == nil {
+		return fmt.Errorf("info is nil")
+	}
 	hy.base = info
 	return hy.protocolSession.OnStreamPublish(hy.sessCtx, info, hy)
 }
@@ -103,10 +86,17 @@ func (hy *HySession) Cycle() error {
 func (hy *HySession) Close() error {
 	err := hy.protocolSession.OnStop()
 	if err != nil {
-		log.Errorf(hy.sessCtx, "session close err: %+v", err)
+		log.Errorf(hy.Ctx(), "session close err: %+v", err)
 		return err
 	}
-	return event.PushEvent0(event.RemoveSession, hy.base.ID())
+	err = hy.GetConn().Close()
+	if err != nil {
+		log.Errorf(hy.Ctx(), "close conn failed: %+v", err)
+	}
+	if hy.base != nil {
+		return event.PushEvent0(event.RemoveSession, hy.base.ID())
+	}
+	return nil
 }
 
 func (hy *HySession) GetConn() hynet.IHyConn {
@@ -134,20 +124,27 @@ func (hy *HySession) SetConfig(key string, val interface{}) {
 	hy.config[key] = val
 }
 
-func (hy *HySessionSource) AddSink(arg *proto.SinkArg) HySessionI {
+func (hy *HySession) AddSink(arg *model.SinkArg) HySessionI {
 	return nil
 }
 
-func (hy *HySessionSource) Push(ctx context.Context, pkt proto.PacketI) {
+func (hy *HySession) Push(ctx context.Context, pkt *model.Packet) *constdef.HyError {
+	if hy.sessionType != constdef.SessionTypeSource {
+		return constdef.SessionCannotPushMedia
+	}
 	hy.cache.Push(pkt)
+	return nil
 }
 
-func (hy *HySessionSource) Pull(ctx context.Context) (proto.PacketI, bool) {
+func (hy *HySession) Pull(ctx context.Context) (*model.Packet, bool, *constdef.HyError) {
+	if hy.sessionType != constdef.SessionTypeSource {
+		return nil, false, constdef.SessionCannotPullMedia
+	}
 	data, exist := hy.cache.Pull()
 	if !exist {
-		return nil, false
+		return nil, false, nil
 	}
-	return data.(proto.PacketI), true
+	return data.(*model.Packet), true, nil
 }
 
 func (hy *HySession) SessionType() constdef.SessionType {
@@ -161,7 +158,7 @@ type ProtocolHandler interface {
 	OnInit(ctx context.Context) error                                                  //最基本的资源检查
 	OnStart(ctx context.Context, sess HySessionI) (base.StreamBaseI, error)            //开始协议通信，握手之类的初始化工作
 	OnStreamPublish(ctx context.Context, info base.StreamBaseI, sess HySessionI) error //开始推流
-	OnMedia(ctx context.Context, w *protocol.MediaWrapper) error                       //获取到流媒体数据
+	OnMedia(ctx context.Context, w *model.Packet) error                                //获取到流媒体数据
 	OnStop() error                                                                     //关闭通信
 }
 
@@ -173,7 +170,7 @@ func (b *BaseHandler) OnStart(ctx context.Context, sess HySessionI) (base.Stream
 	return nil, nil
 }
 
-func (b *BaseHandler) OnMedia(ctx context.Context, mediaType protocol.MediaDataType, data interface{}) error {
+func (b *BaseHandler) OnMedia(ctx context.Context, w *model.Packet) error {
 	return nil
 }
 

@@ -47,7 +47,7 @@ type TcpServer struct {
 
 	stop chan struct{}
 
-	tag string
+	severTag string
 }
 
 func NewTcpServer(ctx context.Context, ip string, port int, tag string) *TcpServer {
@@ -55,12 +55,12 @@ func NewTcpServer(ctx context.Context, ip string, port int, tag string) *TcpServ
 	s.ctx = ctx
 	s.ip = ip
 	s.port = port
-	s.tag = tag
+	s.severTag = tag
 	return s
 }
 
 func (tcpServer *TcpServer) Name() string {
-	return tcpServer.tag
+	return tcpServer.severTag
 }
 
 func (tcpServer *TcpServer) Serve(tag string) error {
