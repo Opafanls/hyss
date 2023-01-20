@@ -17,7 +17,6 @@ type RtmpHandler struct {
 	*session.BaseHandler
 	handshake   *handshake
 	chunkState  *chunkState
-	chunkHeader *chunkHeader
 	chunkStream map[int]*chunkStream
 	poolBuf     pool.BufPool
 	amfEncoder  *amf.Encoder
@@ -31,7 +30,6 @@ func NewRtmpHandler(sess session.HySessionI) *RtmpHandler {
 	rh := &RtmpHandler{BaseHandler: &session.BaseHandler{}}
 	rh.handshake = newHandshake()
 	rh.chunkState = newChunkState()
-	rh.chunkHeader = newChunkHeader()
 	rh.Conn = sess.GetConn()
 	rh.Sess = sess
 	rh.poolBuf = pool.P()
@@ -68,23 +66,22 @@ func (rh *RtmpHandler) OnStop() error {
 	return nil
 }
 
-func (rh *RtmpHandler) decodeBasicHeader(buf []byte) error {
+func (rh *RtmpHandler) decodeBasicHeader(buf []byte) (format, int, error) {
 	if len(buf) < 3 {
 		buf = make([]byte, 3)
 	}
 	_, err := io.ReadAtLeast(rh.Conn, buf[:1], 1)
 	if err != nil {
-		return err
+		return invalid, 0, err
 	}
-	basicHeader := rh.chunkHeader.basicChunkHeader
-	basicHeader.fmt = format(buf[0] >> 6)
+	chunkFmt := format(buf[0] >> 6)
 	csID := int(buf[0] & 0x3f)
 	switch csID {
 	case 0:
 		//1 byte
 		_, err = io.ReadAtLeast(rh.Conn, buf[1:2], 1)
 		if err != nil {
-			return err
+			return invalid, 0, err
 		}
 		csID = int(buf[1]) + 64
 		break
@@ -92,13 +89,12 @@ func (rh *RtmpHandler) decodeBasicHeader(buf []byte) error {
 		//2 bytes
 		_, err = io.ReadAtLeast(rh.Conn, buf[1:], 2)
 		if err != nil {
-			return err
+			return invalid, 0, err
 		}
 		csID = int(buf[2])*256 + int(buf[1]) + 64
 		break
 	}
-	basicHeader.csID = csID
-	return nil
+	return chunkFmt, csID, nil
 }
 
 func (rh *RtmpHandler) onConnect(cs *chunkStream) {
