@@ -256,6 +256,13 @@ type chunkStream struct {
 	writeBuffer   *bytes.Buffer
 	v_recv        uint64
 	a_recv        uint64
+
+	ext bool
+}
+
+func (rh *RtmpHandler) copy(cs *chunkStream) {
+	cs.readBuffer.Reset()
+	cs.remain = rh.chunkHeader.msgLen
 }
 
 func newChunkStream(ctx context.Context, r *RtmpHandler) *chunkStream {
@@ -297,7 +304,6 @@ func (rh *RtmpHandler) processChunk(cs *chunkStream) error {
 		if err != nil {
 			return fmt.Errorf("handleUserControl err: %+v", err)
 		}
-
 	case TypeIDWinAckSize:
 
 	case TypeIDSetPeerBandwidth:
@@ -352,7 +358,7 @@ func (rh *RtmpHandler) readChunk(chunkSize uint32) (*chunkStream, error) {
 		} else {
 			chunkStream = cs0
 		}
-		err = rh.decodeMessageHeader(nil)
+		err = rh.decodeMessageHeader(chunkStream, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -917,7 +923,7 @@ type messageHeader struct { //(0, 3, 7, or 11 bytes)
 	streamID       uint32 //4byte
 }
 
-func (rh *RtmpHandler) decodeMessageHeader(buf []byte) error {
+func (rh *RtmpHandler) decodeMessageHeader(chunkStream *chunkStream, buf []byte) error {
 	fmt0 := rh.chunkHeader.basicChunkHeader.fmt
 	switch fmt0 {
 	case format0_timestamp_msglen_msgtypeid_msgstreamid:
@@ -927,7 +933,8 @@ func (rh *RtmpHandler) decodeMessageHeader(buf []byte) error {
 	case format2_only_timestamp_delta:
 		return rh.decodeFmtType2(buf)
 	case format3_nothing:
-		return nil
+		return rh.decodeFmtType3(chunkStream)
+		//return nil
 	default:
 		return fmt.Errorf("invalid basic header fmt %d", fmt0)
 	}
@@ -1026,5 +1033,47 @@ func (rh *RtmpHandler) decodeFmtType2(buf []byte) error {
 	copy(tmp[1:], buf[:3])
 	mh.timestampDelta = binary.BigEndian.Uint32(tmp)
 	mh.timestamp += mh.timestampDelta
+	return nil
+}
+
+func (rh *RtmpHandler) decodeFmtType3(chunkStream *chunkStream) error {
+	if chunkStream.remain == 0 {
+		switch rh.chunkHeader.fmt {
+		case 0:
+			if chunkStream.ext {
+				buf := make([]byte, 4)
+				_, err := io.ReadAtLeast(rh.Conn, buf, 4)
+				if err != nil {
+					return err
+				}
+				rh.chunkHeader.timestamp = binary.BigEndian.Uint32(buf)
+			}
+		case 1, 2:
+			var timedelta uint32
+			if chunkStream.ext {
+				buf := make([]byte, 4)
+				_, err := io.ReadAtLeast(rh.Conn, buf, 4)
+				if err != nil {
+					return err
+				}
+				timedelta = binary.BigEndian.Uint32(buf)
+			} else {
+				timedelta = rh.chunkHeader.timestampDelta
+			}
+			rh.chunkHeader.timestamp += timedelta
+		}
+		rh.copy(chunkStream)
+	} else {
+		if chunkStream.ext {
+			//b, err := rh.Conn.(4)
+			//if err != nil {
+			//	return err
+			//}
+			//tmpts := binary.BigEndian.Uint32(b)
+			//if tmpts == chunkStream.Timestamp {
+			//	r.Discard(4)
+			//}
+		}
+	}
 	return nil
 }
