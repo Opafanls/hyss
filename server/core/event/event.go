@@ -3,6 +3,7 @@ package event
 import (
 	"context"
 	"fmt"
+	"github.com/Opafanls/hylan/server/model"
 	"github.com/Opafanls/hylan/server/task"
 	"sync"
 )
@@ -10,9 +11,11 @@ import (
 type HyEvent uint32
 
 const (
-	invalid       = iota
-	CreateSession //新的连接进来
-	RemoveSession
+	invalid             = iota
+	CreateSourceSession //新的连接进来
+	CreateSinkSession
+	RemoveSourceSession
+	RemoveSinkSession
 	invalid0
 )
 
@@ -26,7 +29,7 @@ func Init() {
 	d.msgChan = make(chan *wrapper, size)
 	d.wrapperCache = make(chan *wrapper, size)
 	for i := 0; i < size; i++ {
-		d.wrapperCache <- &wrapper{}
+		d.wrapperCache <- &wrapper{data: &model.EventWrap{}}
 	}
 	DefaultEventHandler0 = d
 	DefaultEventHandler0.start()
@@ -34,14 +37,14 @@ func Init() {
 
 type IEventSrv interface {
 	start()
-	pushEvent(HyEvent, interface{}) error
+	pushEvent(context.Context, HyEvent, interface{}) error
 	handle(w *wrapper)
 	register(event HyEvent, handler IEventHandler)
 }
 
 type IEventHandler interface {
 	Event() []HyEvent
-	Handle(event HyEvent, data interface{})
+	Handle(event HyEvent, wrapper *model.EventWrap)
 }
 
 func RegisterEventHandler(handler IEventHandler) error {
@@ -55,12 +58,12 @@ func RegisterEventHandler(handler IEventHandler) error {
 	return nil
 }
 
-func PushEvent0(e HyEvent, data interface{}) error {
-	return PushEvent(e, data, 0)
+func PushEvent0(ctx context.Context, e HyEvent, data interface{}) error {
+	return PushEvent(ctx, e, data, 0)
 }
 
-func PushEvent(e HyEvent, data interface{}, retry int) error {
-	err := DefaultEventHandler0.pushEvent(e, data)
+func PushEvent(ctx context.Context, e HyEvent, data interface{}, retry int) error {
+	err := DefaultEventHandler0.pushEvent(ctx, e, data)
 	if err == nil {
 		return nil
 	} else {
@@ -69,7 +72,7 @@ func PushEvent(e HyEvent, data interface{}, retry int) error {
 		}
 	}
 	for i := 0; retry < 0 || i < retry; i++ {
-		err = DefaultEventHandler0.pushEvent(e, data)
+		err = DefaultEventHandler0.pushEvent(ctx, e, data)
 		if err == nil {
 			break
 		}
@@ -89,18 +92,19 @@ type DefaultEventHandler struct {
 
 type wrapper struct {
 	event HyEvent
-	data  interface{}
+	data  *model.EventWrap
 }
 
-func (d *DefaultEventHandler) pushEvent(event HyEvent, data interface{}) error {
+func (d *DefaultEventHandler) pushEvent(ctx context.Context, event HyEvent, data interface{}) error {
 	var w *wrapper
 	select {
 	case w = <-d.wrapperCache:
 	default:
-		w = &wrapper{}
+		w = &wrapper{data: &model.EventWrap{}}
 	}
 	w.event = event
-	w.data = data
+	w.data.Ctx = ctx
+	w.data.Data = data
 	select {
 	case d.msgChan <- w:
 	default:

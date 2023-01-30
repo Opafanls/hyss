@@ -8,9 +8,9 @@ import (
 	"github.com/Opafanls/hylan/server/constdef"
 	"github.com/Opafanls/hylan/server/core/event"
 	"github.com/Opafanls/hylan/server/core/hynet"
-	"github.com/Opafanls/hylan/server/core/pb"
 	"github.com/Opafanls/hylan/server/log"
 	"github.com/Opafanls/hylan/server/model"
+	"github.com/Opafanls/hylan/server/protocol/container"
 	"sync"
 	"time"
 )
@@ -46,7 +46,7 @@ type HySession struct {
 	base            base.StreamBaseI
 	config          map[constdef.SessionConfigKey]interface{}
 	hynet.IHyConn
-	cache         pb.CacheRing
+	cache         *HyDataCache
 	hySessionStat *HySessionStat
 	l             sync.Mutex
 }
@@ -60,7 +60,13 @@ func NewHySession(ctx context.Context, sessionType constdef.SessionType, conn hy
 		hySessionStat: &HySessionStat{running: true},
 	}
 	hySession.IHyConn = conn
-	hySession.cache = pb.NewRing0(constdef.DefaultCacheSize)
+	hySession.cache = NewHyDataCache([]uint64{
+		constdef.DefaultCacheSize,
+		16,
+		1,
+		1,
+		1,
+	})
 	for _, kv := range kvs {
 		hySession.config[kv.K] = kv.V
 	}
@@ -112,7 +118,14 @@ func (hy *HySession) Close() error {
 		log.Errorf(hy.Ctx(), "close Conn failed: %+v", err)
 	}
 	if hy.base != nil {
-		return event.PushEvent0(event.RemoveSession, hy.base.ID())
+		st := BaseSessionType(hy)
+		if st.IsSink() {
+			return event.PushEvent0(hy.sessCtx, event.RemoveSinkSession, hy.base.ID())
+		} else {
+			return event.PushEvent0(hy.sessCtx, event.RemoveSourceSession, hy.base.ID())
+		}
+	} else {
+		log.Warnf(hy.sessCtx, "hy base is nil")
 	}
 	return nil
 }
@@ -150,18 +163,37 @@ func (hy *HySession) SetConfig(key constdef.SessionConfigKey, val interface{}) {
 
 func (hy *HySession) Sink(arg *SinkArg) error {
 	var err error
-	remoteStat := arg.Remote.Stat()
-	remoteSess := arg.Remote
-	for remoteStat.running {
-		pkt, exist, err := remoteSess.Pull(hy.sessCtx)
+	sourceStat := arg.Local.Stat()
+	sourceSess := arg.Local
+	var rw0 container.ReadWriter
+	rw, ok := arg.Remote.GetConfig(constdef.ConfigKeySinkRW)
+	if !ok {
+		return fmt.Errorf("sink ConfigKeySinkRW not set")
+	} else {
+		if rw0, ok = rw.(container.ReadWriter); !ok {
+			return fmt.Errorf("container rw cast failed")
+		}
+	}
+	for sourceStat.running {
+		pkt, exist, err := sourceSess.Pull(hy.sessCtx)
 		if err != nil {
 			return fmt.Errorf("pull packet err: %+v", err)
 		}
 		if !exist {
-			time.Sleep(time.Millisecond * 200)
+			time.Sleep(time.Millisecond * 100)
+			continue
 		}
 		switch pkt.MediaType {
 		case constdef.MediaDataTypeVideo:
+			if err := rw0.Write(pkt); err != nil {
+				if shouldContainer := rw0.OnError(err); shouldContainer {
+					log.Warnf(arg.Ctx, "write pkt warn: %+v", err)
+					continue
+				} else {
+					log.Errorf(arg.Ctx, "write pkt failed: %+v", err)
+					return err
+				}
+			}
 		case constdef.MediaDataTypeAudio:
 		}
 	}
@@ -232,6 +264,8 @@ func (b *BaseHandler) OnStart(ctx context.Context, sess HySessionI) (base.Stream
 
 func (b *BaseHandler) OnMedia(ctx context.Context, w *model.Packet) error {
 	source := b.Sess
+	mediaData := make([]byte, 0, len(w.Data))
+	copy(mediaData, w.Data)
 	err := source.Push(ctx, w)
 	if err != nil {
 		return err
@@ -248,7 +282,16 @@ func (b *BaseHandler) OnStreaming(ctx context.Context, info base.StreamBaseI, se
 		return nil
 	}
 	sess.SetConfig(constdef.ConfigKeySessionBase, info)
-	err := event.PushEvent0(event.CreateSession, NewStreamEvent(info, sess))
+	sessType := BaseSessionType(sess)
+	var err error
+	if sessType.IsSource() {
+		err = event.PushEvent0(ctx, event.CreateSourceSession, NewStreamEvent(info, sess))
+	} else {
+		sourceID := info.ID()
+		sinkID := SinkID(sourceID)
+		info.SetParam(base.ParamKeyID, sinkID)
+		err = event.PushEvent0(ctx, event.CreateSinkSession, &model.KVStr{K: sourceID, V: sinkID})
+	}
 	if err != nil {
 		log.Errorf(ctx, "onPublish %+v failed: %+v", info, err)
 	} else {

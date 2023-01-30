@@ -2,20 +2,24 @@ package stream
 
 import (
 	"context"
+	"fmt"
 	"github.com/Opafanls/hylan/server/base"
 	"github.com/Opafanls/hylan/server/constdef"
 	"github.com/Opafanls/hylan/server/core/event"
 	"github.com/Opafanls/hylan/server/log"
+	"github.com/Opafanls/hylan/server/model"
 	"github.com/Opafanls/hylan/server/session"
+	"github.com/Opafanls/hylan/server/util"
 	"sync"
 )
 
 var DefaultHyStreamManager HyStreamManagerI
 
 type HyStreamManagerI interface {
-	StreamFilter(interface{}) (interface{}, error)
+	StreamFilter(func(map[string]HyStreamI)) error
 	AddStream(hyStream HyStreamI)
 	RemoveStream(streamBaseID string)
+	RemoveStreamSink(source, sink string) error
 	GetStreamByID(id string) HyStreamI
 }
 
@@ -56,16 +60,14 @@ func (streamManager *HyStreamManager) RemoveStream(streamBaseID string) {
 }
 
 // StreamFilter for biz
-func (streamManager *HyStreamManager) StreamFilter(filter interface{}) (interface{}, error) {
+func (streamManager *HyStreamManager) StreamFilter(filter func(map[string]HyStreamI)) error {
 	if filter == nil {
 		//ret all streams
-		r := make(map[string]interface{}, len(streamManager.streamMap))
-		for k, v := range streamManager.streamMap {
-			r[k] = v
-		}
-		return r, nil
+		return fmt.Errorf("filter is nil")
 	}
-	return nil, nil
+	streamM := util.Copy(streamManager.streamMap)
+	filter(streamM.(map[string]HyStreamI))
+	return nil
 }
 
 func (streamManager *HyStreamManager) GetStreamByID(id string) HyStreamI {
@@ -75,24 +77,38 @@ func (streamManager *HyStreamManager) GetStreamByID(id string) HyStreamI {
 	return r
 }
 
+func (streamManager *HyStreamManager) RemoveStreamSink(source, sink string) error {
+	s := streamManager.GetStreamByID(source)
+	if s == nil {
+		return constdef.NewHyFunErr("RemoveStreamSink", fmt.Errorf("source not found"))
+	}
+	if err := s.RmSink(sink); err != nil {
+		return constdef.NewHyFunErr("RemoveStreamSink", err)
+	}
+	return nil
+}
+
 func (s *streamHandler) Event() []event.HyEvent {
 	return []event.HyEvent{
-		event.CreateSession,
-		event.RemoveSession,
+		event.CreateSourceSession,
+		event.RemoveSourceSession,
 	}
 }
 
-func (s *streamHandler) Handle(e event.HyEvent, data interface{}) {
+func (s *streamHandler) Handle(e event.HyEvent, data *model.EventWrap) {
+	log.Infof(data.Ctx, "handle event %d, data: %+v", e, data.Data)
 	switch e {
-	case event.CreateSession:
-		m := data.(map[constdef.SessionConfigKey]interface{})
+	case event.CreateSourceSession:
+		m := data.Data.(map[constdef.SessionConfigKey]interface{})
 		baseI := m[constdef.ConfigKeyStreamBase].(base.StreamBaseI)
 		sess := m[constdef.ConfigKeyStreamSess].(session.HySessionI)
 		stream := NewHyStream(baseI, sess)
 		DefaultHyStreamManager.AddStream(stream)
+	case event.CreateSinkSession:
 		break
-	case event.RemoveSession:
-		DefaultHyStreamManager.RemoveStream(data.(string))
+	case event.RemoveSourceSession:
+		DefaultHyStreamManager.RemoveStream(data.Data.(string))
+	case event.RemoveSinkSession:
 		break
 	default:
 		log.Errorf(context.Background(), "event not handle %d %v", e, data)

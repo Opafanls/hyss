@@ -9,10 +9,13 @@ import (
 	"github.com/Opafanls/hylan/server/base"
 	"github.com/Opafanls/hylan/server/constdef"
 	"github.com/Opafanls/hylan/server/core/bitio"
+	"github.com/Opafanls/hylan/server/core/hynet"
 	"github.com/Opafanls/hylan/server/core/pool"
 	"github.com/Opafanls/hylan/server/log"
 	"github.com/Opafanls/hylan/server/model"
 	"github.com/Opafanls/hylan/server/protocol/data_format/amf"
+	"github.com/Opafanls/hylan/server/session"
+	"github.com/Opafanls/hylan/server/stream"
 	"io"
 	"net/url"
 	"strings"
@@ -93,6 +96,118 @@ const (
 	Soft
 	Dynamic
 )
+
+type RtmpHandler struct {
+	*session.BaseHandler
+	handshake   *handshake
+	chunkState  *chunkState
+	chunkStream map[int]*chunkStream
+	poolBuf     pool.BufPool
+	amfEncoder  *amf.Encoder
+	amfDecoder  *amf.Decoder
+
+	connDone bool
+	publish  bool
+}
+
+func NewRtmpHandler(sess session.HySessionI) *RtmpHandler {
+	rh := &RtmpHandler{BaseHandler: &session.BaseHandler{}}
+	rh.handshake = newHandshake()
+	rh.chunkState = newChunkState()
+	rh.Conn = sess.GetConn()
+	rh.Sess = sess
+	rh.poolBuf = pool.P()
+	rh.chunkState.streamID = 1
+	rh.chunkStream = make(map[int]*chunkStream)
+	rh.amfDecoder = amf.NewDecoder()
+	rh.amfEncoder = amf.NewEncoder()
+	rh.Base = base.NewEmptyBase()
+	return rh
+}
+
+func (rh *RtmpHandler) OnStart(ctx context.Context, sess session.HySessionI) (base.StreamBaseI, error) {
+	var err error
+	rh.Ctx = ctx
+	rh.Sess = sess
+	err = rh.handshake.handshake(rh.Conn)
+	if err != nil {
+		return nil, err
+	}
+	err = rh.msgLoop(false)
+	if err != nil {
+		return nil, err
+	}
+	if rh.publish {
+		sess.SetConfig(constdef.ConfigKeySessionType, constdef.SessionTypeRtmpSource)
+	} else {
+		sess.SetConfig(constdef.ConfigKeySessionType, constdef.SessionTypeRtmpSink)
+	}
+	return rh.Base, nil
+}
+
+func (rh *RtmpHandler) OnStop() error {
+
+	return nil
+}
+
+func (rh *RtmpHandler) decodeBasicHeader(buf []byte) (format, int, error) {
+	if len(buf) < 3 {
+		buf = make([]byte, 3)
+	}
+	_, err := io.ReadAtLeast(rh.Conn, buf[:1], 1)
+	if err != nil {
+		return invalid, 0, err
+	}
+	chunkFmt := format(buf[0] >> 6)
+	csID := int(buf[0] & 0x3f)
+	switch csID {
+	case 0:
+		//1 byte
+		_, err = io.ReadAtLeast(rh.Conn, buf[1:2], 1)
+		if err != nil {
+			return invalid, 0, err
+		}
+		csID = int(buf[1]) + 64
+		break
+	case 1:
+		//2 bytes
+		_, err = io.ReadAtLeast(rh.Conn, buf[1:], 2)
+		if err != nil {
+			return invalid, 0, err
+		}
+		csID = int(buf[2])*256 + int(buf[1]) + 64
+		break
+	}
+	return chunkFmt, csID, nil
+}
+
+func (rh *RtmpHandler) onConnect(cs *chunkStream) {
+}
+
+func (rh *RtmpHandler) OnStreaming(ctx context.Context, info base.StreamBaseI, sess session.HySessionI) error {
+	//pub source stream to stream_center
+	err := rh.BaseHandler.OnStreaming(ctx, info, sess)
+	if err != nil {
+		return err
+	}
+	if rh.publish {
+		rh.connDone = true
+		return rh.msgLoop(true)
+	} else {
+		source := stream.DefaultHyStreamManager.GetStreamByID(info.ID())
+		if source == nil {
+			return fmt.Errorf("source not found")
+		}
+		remoteAddr, _ := sess.GetConn().GetConfig(hynet.RemoteAddr)
+		sess.SetConfig(constdef.ConfigKeySinkRW, NewRtmp(rh))
+		return source.Sink(&session.SinkArg{
+			Ctx:    ctx,
+			Sink:   session.NewBaseSink(info, fmt.Sprintf("rtmp_%s", remoteAddr)),
+			Remote: sess,
+			Local:  source.Source(),
+		})
+	}
+}
 
 type S0C0 struct {
 	ver byte
@@ -262,8 +377,7 @@ type chunkStream struct {
 	*chunkHeader
 }
 
-func (rh *RtmpHandler) copy(cs *chunkStream) {
-	cs.readBuffer.Reset()
+func (cs *chunkStream) preceding() {
 	cs.remain = cs.chunkHeader.msgLen
 }
 
@@ -290,6 +404,7 @@ func (rh *RtmpHandler) msgLoop(init bool) error {
 			return err
 		}
 		cs.readBuffer.Reset()
+		cs.writeBuffer.Reset()
 	}
 	return nil
 }
@@ -301,30 +416,26 @@ func (rh *RtmpHandler) processChunk(cs *chunkStream) error {
 		clientCs := binary.BigEndian.Uint32(msg[:4])
 		cs.h.chunkState.clientChunkSize = clientCs
 	case TypeIDAbortMessage:
-
 	case TypeIDAck:
-
 	case TypeIDUserCtrl:
 		err := cs.handleUserControl()
 		if err != nil {
 			return fmt.Errorf("handleUserControl err: %+v", err)
 		}
 	case TypeIDWinAckSize:
-
 	case TypeIDSetPeerBandwidth:
-
 	case TypeIDCommandMessageAMF0:
 		err := cs.handleAMF0()
 		if err != nil {
 			return err
 		}
 	case TypeIDAudioMessage:
-
 	case TypeIDVideoMessage:
 		err := cs.handleVideo()
 		if err != nil {
 			return err
 		}
+	case TypeIDDataMessageAMF0:
 	default:
 		log.Infof(cs.ctx, "invalid message type %d", cs.chunkHeader.typeID)
 	}
@@ -370,6 +481,10 @@ func (rh *RtmpHandler) readChunk(chunkSize uint32) (*chunkStream, error) {
 		if format == format0_timestamp_msglen_msgtypeid_msgstreamid ||
 			format == format1_timestamp_delta_and_msg_info {
 			chunkStream.remain = chunkStream.chunkHeader.msgLen
+		} else {
+			if chunkStream.remain == 0 {
+				chunkStream.preceding()
+			}
 		}
 		readLen := chunkStream.remain
 		if readLen > chunkSize {
@@ -663,10 +778,7 @@ func (cs *chunkStream) handleVideo() error {
 		MediaType: constdef.MediaDataTypeVideo,
 		Timestamp: uint64(cs.timestamp),
 		Data:      data[1:],
-		Video: &model.VideoPacketHeader{
-			FrameType: frameType,
-			VCodec:    codec,
-		},
+		Header:    NewRtmpPacketMeta(model.NewVideoPktH(frameType, codec, "rtmp"), cs.streamID),
 	})
 }
 
@@ -934,8 +1046,17 @@ func (rh *RtmpHandler) decodeMessageHeader(chunkStream *chunkStream, buf []byte)
 	case format1_timestamp_delta_and_msg_info:
 		return rh.decodeFmtType1(chunkStream, buf)
 	case format2_only_timestamp_delta:
+		/**Type 2 chunk headers are 3 bytes long.
+		Neither the stream ID nor the message length is included;
+		this chunk has the same stream ID and message length as the preceding chunk.
+		Streams with constant-sized messages (for example, some audio and data formats) SHOULD use this format for the first chunk of each message after the first.
+		*/
 		return rh.decodeFmtType2(chunkStream, buf)
 	case format3_nothing:
+		/**Type 3 chunks have no message header. The stream ID, message length and timestamp delta fields are not present;
+		chunks of this type take values from the preceding chunk for the same Chunk Stream ID.
+		When a single message is split into chunks, all chunks of a message except the first one SHOULD use this type.
+		*/
 		return rh.decodeFmtType3(chunkStream)
 		//return nil
 	default:
@@ -981,6 +1102,9 @@ func (rh *RtmpHandler) decodeFmtType0(cs *chunkStream, buf []byte) error {
 		//extend timestamp
 		mh.timestampDelta = binary.BigEndian.Uint32(cache32bits)
 		mh.timestamp += mh.timestampDelta
+		cs.ext = true
+	} else {
+		cs.ext = false
 	}
 	return nil
 }
@@ -1042,7 +1166,7 @@ func (rh *RtmpHandler) decodeFmtType2(cs *chunkStream, buf []byte) error {
 func (rh *RtmpHandler) decodeFmtType3(chunkStream *chunkStream) error {
 	if chunkStream.remain == 0 {
 		switch chunkStream.fmt {
-		case 0:
+		case format0_timestamp_msglen_msgtypeid_msgstreamid:
 			if chunkStream.ext {
 				buf := make([]byte, 4)
 				_, err := io.ReadAtLeast(rh.Conn, buf, 4)
@@ -1051,7 +1175,7 @@ func (rh *RtmpHandler) decodeFmtType3(chunkStream *chunkStream) error {
 				}
 				chunkStream.timestamp = binary.BigEndian.Uint32(buf)
 			}
-		case 1, 2:
+		case format1_timestamp_delta_and_msg_info, format2_only_timestamp_delta:
 			var timedelta uint32
 			if chunkStream.ext {
 				buf := make([]byte, 4)
@@ -1065,7 +1189,6 @@ func (rh *RtmpHandler) decodeFmtType3(chunkStream *chunkStream) error {
 			}
 			chunkStream.timestamp += timedelta
 		}
-		rh.copy(chunkStream)
 	} else {
 		if chunkStream.ext {
 			//b, err := rh.Conn.(4)

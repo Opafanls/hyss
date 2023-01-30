@@ -2,18 +2,20 @@ package stream
 
 import (
 	"encoding/json"
-	"fmt"
 	"github.com/Opafanls/hylan/server/base"
+	"github.com/Opafanls/hylan/server/core/event"
+	"github.com/Opafanls/hylan/server/log"
+	"github.com/Opafanls/hylan/server/model"
 	"github.com/Opafanls/hylan/server/session"
 	"net/url"
 	"sync"
-	"time"
 )
 
 type HyStreamI interface {
 	Base() base.StreamBaseI
 	Source() session.HySessionI
 	Sink(arg *session.SinkArg) error
+	RmSink(string) error
 }
 
 // HyStream biz stream
@@ -46,19 +48,32 @@ func (stream *HyStream) Source() session.HySessionI {
 }
 
 func (stream *HyStream) Sink(arg *session.SinkArg) error {
-	id := fmt.Sprintf("%d", time.Now().UnixNano())
 	stream.l.Lock()
-	stream.sinkSessions[id] = arg.Remote
+	stream.sinkSessions[arg.SourceID] = arg.Remote
 	stream.l.Unlock()
 	defer func() {
 		stream.l.Lock()
-		delete(stream.sinkSessions, id)
+		delete(stream.sinkSessions, arg.SourceID)
 		stream.l.Unlock()
+		err := event.PushEvent0(arg.Ctx, event.RemoveSinkSession, &model.KVStr{
+			K: arg.SourceID,
+			V: arg.Local.Base().ID(),
+		})
+		if err != nil {
+			log.Errorf(arg.Ctx, "push RemoveSinkSession err: %+v", err)
+		}
 	}()
 	err := stream.sourceSession.Sink(arg)
 	if err != nil {
 		return err
 	}
+	return nil
+}
+
+func (stream *HyStream) RmSink(id string) error {
+	stream.l.Lock()
+	delete(stream.sinkSessions, id)
+	stream.l.Unlock()
 	return nil
 }
 

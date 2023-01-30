@@ -15,6 +15,7 @@ const (
 	ParamKeyApp      = "StreamBaseApp"
 	ParamKeyName     = "StreamBaseName"
 	ParamKeyIsSource = "StreamBaseIsSource"
+	ParamKeyID       = "StreamBaseID"
 )
 
 type StreamBaseI interface {
@@ -88,13 +89,12 @@ func (streamBase *StreamBase) SetParam(key, val string) {
 	switch key {
 	case ParamKeyVhost:
 		streamBase.vhost = val
-		break
 	case ParamKeyApp:
 		streamBase.app = val
-		break
 	case ParamKeyName:
 		streamBase.name = val
-		break
+	case ParamKeyID:
+		streamBase.id = val
 	default:
 		return
 	}

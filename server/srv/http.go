@@ -65,7 +65,7 @@ func (h *HttpServer) ok(c *gin.Context, data interface{}) {
 
 func (h *HttpServer) ret(c *gin.Context, code int, msg string, data interface{}) {
 	c.JSON(code, gin.H{
-		"message":     msg,
-		"data_format": data,
+		"message": msg,
+		"data":    data,
 	})
 }

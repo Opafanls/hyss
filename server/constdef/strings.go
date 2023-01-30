@@ -3,14 +3,16 @@ package constdef
 type SessionConfigKey string
 
 const (
-	ConfigKeyStreamBase SessionConfigKey = "stream_base"
-	ConfigKeyStreamSess SessionConfigKey = "stream_sess"
+	ConfigKeyStreamBase SessionConfigKey = "ConfigKeyStreamBase"
+	ConfigKeyStreamSess SessionConfigKey = "ConfigKeyStreamSess"
 
-	ConfigKeySessionBase SessionConfigKey = "session_base"
-	ConfigKeyVideoCodec  SessionConfigKey = "video_codec"
-	ConfigKeyAudioCodec  SessionConfigKey = "audio_codec"
+	ConfigKeySessionBase SessionConfigKey = "ConfigKeySessionBase"
+	ConfigKeyVideoCodec  SessionConfigKey = "ConfigKeyVideoCodec"
+	ConfigKeyAudioCodec  SessionConfigKey = "ConfigKeyAudioCodec"
 
-	ConfigKeySessionType SessionConfigKey = "session_type"
+	ConfigKeySessionType SessionConfigKey = "ConfigKeySinkSourceSession"
 
-	ConfigKeySinkSourceSession SessionConfigKey = "config_sink_source_session"
+	ConfigKeySinkSourceSession SessionConfigKey = "ConfigKeySinkSourceSession"
+
+	ConfigKeySinkRW SessionConfigKey = "ConfigKeySinkRW"
 )

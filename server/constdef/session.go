@@ -15,10 +15,15 @@ const (
 	SessionTypeFileSink
 	SessionTypeHttpSink
 	SessionTypeInvalid0
+	SessionNotFoundAtBase
 )
 
 const DefaultCacheSize = 1024
 
 func (s SessionType) IsSource() bool {
-	return s < SessionSeparator
+	return s < SessionSeparator && s > SessionTypeInvalid
+}
+
+func (s SessionType) IsSink() bool {
+	return s > SessionSeparator && s < SessionTypeInvalid0
 }

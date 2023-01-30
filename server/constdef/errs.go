@@ -24,6 +24,13 @@ func NewHyError(ctxMsg string, err error) *HyError {
 	}
 }
 
+func NewHyFunErr(funcName string, errMsg error) *HyError {
+	return &HyError{
+		CtxMsg: funcName,
+		Err:    errMsg,
+	}
+}
+
 func (h *HyError) Error() string {
 	if h.Err == nil {
 		return fmt.Sprintf("Err:no_err;Msg:%s", h.CtxMsg)

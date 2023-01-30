@@ -1,4 +1,4 @@
-package pb
+package cache
 
 import (
 	"testing"

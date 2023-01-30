@@ -6,10 +6,11 @@ import (
 )
 
 type SinkArg struct {
-	Ctx    context.Context
-	Sink   Sink
-	Remote HySessionI
-	Local  HySessionI
+	Ctx      context.Context
+	Sink     Sink
+	Remote   HySessionI
+	Local    HySessionI
+	SourceID string //要创建sink的source id
 }
 
 type Sink interface {
