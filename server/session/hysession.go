@@ -63,9 +63,6 @@ func NewHySession(ctx context.Context, sessionType constdef.SessionType, conn hy
 	hySession.cache = NewHyDataCache([]uint64{
 		constdef.DefaultCacheSize,
 		16,
-		1,
-		1,
-		1,
 	})
 	for _, kv := range kvs {
 		hySession.config[kv.K] = kv.V
@@ -212,11 +209,8 @@ func (hy *HySession) Pull(ctx context.Context) (*model.Packet, bool, error) {
 	if hy.sessionType != constdef.SessionTypeRtmpSource {
 		return nil, false, constdef.SessionCannotPullMedia
 	}
-	data, exist := hy.cache.Pull()
-	if !exist {
-		return nil, false, nil
-	}
-	return data.(*model.Packet), true, nil
+	data := hy.cache.Pull()
+	return data, true, nil
 }
 
 func (hy *HySession) SessionType() constdef.SessionType {

@@ -6,16 +6,15 @@ import (
 
 type CacheRing interface {
 	Close()
-	Pull() (interface{}, bool)
+	Pull(sync bool) (interface{}, bool)
 	Push(interface{}) uint64
 	Reset()
+	SetReadIdx(readIdx uint64)
+	SetWriteIdx(readIdx uint64)
 }
 
 type Ring0 struct {
 	ringBuffer *b0.RingBuffer
-}
-
-type item struct {
 }
 
 func NewRing0(size uint64) *Ring0 {
@@ -32,8 +31,8 @@ func (r *Ring0) Close() {
 	r.ringBuffer.Close()
 }
 
-func (r *Ring0) Pull() (interface{}, bool) {
-	return r.ringBuffer.Pull()
+func (r *Ring0) Pull(sync bool) (interface{}, bool) {
+	return r.ringBuffer.Pull(sync)
 }
 
 func (r *Ring0) Push(data interface{}) uint64 {
@@ -42,4 +41,11 @@ func (r *Ring0) Push(data interface{}) uint64 {
 
 func (r *Ring0) Reset() {
 	r.ringBuffer.Reset()
+}
+
+func (r *Ring0) SetReadIdx(readIdx uint64) {
+	r.ringBuffer.SetReadIdx(readIdx)
+}
+func (r *Ring0) SetWriteIdx(writeIdx uint64) {
+	r.ringBuffer.SetWriteIdx(writeIdx)
 }

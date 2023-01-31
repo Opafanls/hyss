@@ -4,6 +4,7 @@ import "github.com/Opafanls/hylan/server/constdef"
 
 type Packet struct {
 	FrameIdx  uint64
+	CacheIdx  uint64
 	MediaType constdef.MediaDataType
 	Timestamp uint64
 

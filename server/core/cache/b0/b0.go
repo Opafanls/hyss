@@ -60,7 +60,7 @@ func (r *RingBuffer) Push(data interface{}) uint64 {
 }
 
 // Pull pulls data from the beginning of the buffer.
-func (r *RingBuffer) Pull() (interface{}, bool) {
+func (r *RingBuffer) Pull(sync bool) (interface{}, bool) {
 	for {
 		i := r.readIndex % r.size
 		res := (*interface{})(atomic.SwapPointer(&r.buffer[i], nil))
@@ -68,13 +68,25 @@ func (r *RingBuffer) Pull() (interface{}, bool) {
 			if atomic.SwapInt64(&r.closed, 0) == 1 {
 				return nil, false
 			}
-			r.event.wait()
-			continue
+			if sync {
+				r.event.wait()
+				continue
+			} else {
+				return nil, false
+			}
 		}
 
 		r.readIndex++
 		return *res, true
 	}
+}
+
+func (r *RingBuffer) SetReadIdx(readIdx uint64) {
+	r.readIndex = readIdx
+}
+
+func (r *RingBuffer) SetWriteIdx(writeIdx uint64) {
+	r.writeIndex = writeIdx
 }
 
 type event struct {
