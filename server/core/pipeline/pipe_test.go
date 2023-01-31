@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"context"
 	"fmt"
 	"github.com/stretchr/testify/require"
 	"reflect"
@@ -16,11 +17,13 @@ type node1 struct {
 	*BaseNode
 }
 
+func (n *node1) Init()          {}
+func (n *node1) Destroy() error { return nil }
 func (n *node1) Name() string {
 	return "node1"
 }
 
-func (n *node1) Action(input interface{}) (output interface{}, err error) {
+func (n *node1) Action(ctx context.Context, input interface{}) (output interface{}, err error) {
 	switch in := input.(type) {
 	case string:
 		fmt.Printf("action input string is %s\n", in)
@@ -56,10 +59,6 @@ func (n *node1) ListSinkNodes() []INode {
 	return n.BaseNode.ListSinkNodes()
 }
 
-func (n *node1) MultiNode() bool {
-	return false
-}
-
 func TestDefaultPipeline_Check(t *testing.T) {
 	d := NewDefaultP()
 	n1 := &node1{NewBaseNode()}
@@ -78,7 +77,7 @@ func TestDefaultPipeline_Check(t *testing.T) {
 	_, err := d.Check()
 	require.Nil(t, err)
 
-	err = d.Fire("1")
+	err = d.Fire(context.Background(), "1")
 	require.Nil(t, err)
 
 	t.Logf("%s", "")

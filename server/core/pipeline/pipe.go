@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"sync"
@@ -9,12 +10,17 @@ import (
 type IPipeline interface {
 	Print() string
 	Check() (errIndex int, err error)
-	Fire(input interface{}) error
+	Fire(ctx context.Context, input interface{}) error
 	Stop() error
 	FirstNode() (node INode, exist bool)
 	LastNode() (node INode, exist bool)
 	MountFirst(node INode, override bool) error
-	//MountLast(node INode) error
+	//todo get pipeline run result
+}
+
+type PipeCtx interface {
+	context.Context
+	Result(sync bool) interface{}
 }
 
 type DefaultPipeline struct {
@@ -84,23 +90,17 @@ func (d *DefaultPipeline) typeIn(ins []reflect.Type, target reflect.Type) bool {
 	return false
 }
 
-func (d *DefaultPipeline) Fire(input interface{}) error {
+func (d *DefaultPipeline) Fire(ctx context.Context, input interface{}) error {
 	if d.firstNode == nil {
 		return fmt.Errorf("pipeline first node is nil")
 	}
-	return d.fire(d.firstNode, input)
+	return d.fire(ctx, d.firstNode, input)
 }
 
-func (d *DefaultPipeline) fire(node INode, input interface{}) error {
-	output, err := node.Action(input)
+func (d *DefaultPipeline) fire(ctx context.Context, node INode, input interface{}) error {
+	_, err := node.Action(ctx, input)
 	if err != nil {
 		return err
-	}
-	for _, sink := range node.ListSinkNodes() {
-		err = d.fire(sink, output)
-		if err != nil {
-			return err
-		}
 	}
 	return nil
 }

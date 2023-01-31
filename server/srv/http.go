@@ -5,6 +5,7 @@ import (
 	"github.com/Opafanls/hylan/server/core/hynet"
 	"github.com/Opafanls/hylan/server/stream"
 	"github.com/gin-gonic/gin"
+	"net/http"
 )
 
 const (
@@ -55,17 +56,39 @@ func (h *HttpServer) v1(v1 *gin.RouterGroup) {
 }
 
 func (h *HttpServer) listStreams(c *gin.Context) {
-	r, _ := stream.DefaultHyStreamManager.StreamFilter(nil)
+	var r map[string]stream.HyStreamI
+	err := stream.DefaultHyStreamManager.StreamFilter(func(m map[string]stream.HyStreamI) {
+		r = m
+	})
+	if err != nil {
+		h.internalErr(c, err)
+		return
+	}
 	h.ok(c, r)
 }
 
 func (h *HttpServer) ok(c *gin.Context, data interface{}) {
-	h.ret(c, 200, msgSuccess, data)
+	h.ret(c, 200, msgSuccess, data, nil)
 }
 
-func (h *HttpServer) ret(c *gin.Context, code int, msg string, data interface{}) {
-	c.JSON(code, gin.H{
-		"message": msg,
-		"data":    data,
-	})
+func (h *HttpServer) internalErr(c *gin.Context, err error) {
+	h.ret(c, 500, msgInternalErr, nil, err)
+}
+
+func (h *HttpServer) argErr(c *gin.Context, err error) {
+	h.ret(c, 400, msgArgErr, nil, err)
+}
+
+func (h *HttpServer) ret(c *gin.Context, code int, msg string, data interface{}, err error) {
+	if code == http.StatusOK {
+		c.JSON(code, gin.H{
+			"message": msg,
+			"data":    data,
+		})
+	} else {
+		c.JSON(code, gin.H{
+			"message": msg,
+			"err":     err,
+		})
+	}
 }

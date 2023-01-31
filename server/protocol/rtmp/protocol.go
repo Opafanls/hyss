@@ -493,10 +493,7 @@ func (rh *RtmpHandler) readChunk(chunkSize uint32) (*chunkStream, error) {
 		} else {
 			chunkStream.remain = 0
 		}
-		buf, err := rh.poolBuf.Make(int(readLen))
-		if err != nil {
-			return nil, err
-		}
+		buf := rh.poolBuf.Make(int(readLen))
 		_, err = io.ReadAtLeast(rh.Conn, buf, int(readLen))
 		if err != nil {
 			return nil, err

@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"sync"
@@ -13,33 +14,45 @@ const (
 )
 
 type INode interface {
-	Name() string                                             //node名称
-	Action(input interface{}) (output interface{}, err error) //处理器
-	InputType() []reflect.Type                                //输入的数据类型
-	OutputType() []reflect.Type                               //输出的数据类型
-	MultiNode() bool                                          //是否支持挂载多个sink node
-	PutSinkNode(sinkNode INode) error                         //增加数据输出node
+	Name() string                                                                  //node名称
+	Action(ctx context.Context, input interface{}) (output interface{}, err error) //处理器
+	InputType() []reflect.Type                                                     //输入的数据类型
+	OutputType() []reflect.Type                                                    //输出的数据类型
+	PutSinkNode(sinkNode INode) error                                              //增加数据输出node
 	ListSinkNodes() []INode
-	INodeEvent //事件模型
+	INodeEvent    //事件模型
+	NodeLifecycle //生命周期
+}
+
+type NodeLifecycle interface {
+	Init()
+	Destroy() error
 }
 
 type INodeEvent interface {
 }
+
+type ErrorHandler func(ctx context.Context, node INode, err error)
 
 func NewBaseNode() *BaseNode {
 	return &BaseNode{}
 }
 
 type BaseNode struct {
-	sinkNodes []INode
-	l         sync.Mutex
+	sinkNodes  []INode
+	l          sync.Mutex
+	ErrHandler ErrorHandler
 }
+
+func (b *BaseNode) Init() {}
+
+func (b *BaseNode) Destroy() error { return nil }
 
 func (b *BaseNode) Name() string {
 	return "base"
 }
 
-func (b *BaseNode) Action(input interface{}) (output interface{}, err error) {
+func (b *BaseNode) Action(ctx context.Context, input interface{}) (output interface{}, err error) {
 	return nil, nil
 }
 
@@ -51,14 +64,7 @@ func (b *BaseNode) OutputType() []reflect.Type {
 	return []reflect.Type{}
 }
 
-func (b *BaseNode) MultiNode() bool {
-	return false
-}
-
 func (b *BaseNode) PutSinkNode(sinkNode INode) error {
-	if !b.MultiNode() && len(b.sinkNodes) > 0 {
-		return fmt.Errorf("node is not multi type, but contain too many sink nodes")
-	}
 	b.l.Lock()
 	defer b.l.Unlock()
 	for _, in0 := range b.OutputType() {
@@ -79,4 +85,10 @@ func (b *BaseNode) PutSinkNode(sinkNode INode) error {
 
 func (b *BaseNode) ListSinkNodes() []INode {
 	return b.sinkNodes
+}
+
+func (b *BaseNode) OnError(ctx context.Context, node INode, err error) {
+	if b.ErrHandler != nil {
+		b.ErrHandler(ctx, node, err)
+	}
 }

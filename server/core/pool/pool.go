@@ -3,7 +3,7 @@ package pool
 var defaultPool BufPool = &DefaultBufPool{}
 
 type BufPool interface {
-	Make(size int) ([]byte, error)
+	Make(size int) []byte
 	Reset()
 	Return([]byte)
 }
@@ -11,8 +11,8 @@ type BufPool interface {
 type DefaultBufPool struct {
 }
 
-func (d *DefaultBufPool) Make(size int) ([]byte, error) {
-	return make([]byte, size), nil
+func (d *DefaultBufPool) Make(size int) []byte {
+	return make([]byte, size)
 }
 
 func (d *DefaultBufPool) Reset() {
