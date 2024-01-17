@@ -53,5 +53,5 @@ func (d *DefaultTaskSystem) SubmitTask(ctx context.Context, job Task) error {
 }
 
 func (d *DefaultTaskSystem) Shutdown() {
-	panic("shutdown")
+	panic("task system shutdown")
 }

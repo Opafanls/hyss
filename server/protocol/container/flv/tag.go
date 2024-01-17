@@ -28,7 +28,7 @@ type mediaTag struct {
 		11 = Speex
 		14 = MP3 8-Khz
 		15 = Device-specific sound
-		Formats 7, 8, 14, and 15 are reserved for internal use
+		Formats 7, 8, 14, and 15 are reserved for errs use
 		AAC is supported in Flash Player 9,0,115,0 and higher.
 		Speex is supported in Flash Player 10 and higher.
 	*/
