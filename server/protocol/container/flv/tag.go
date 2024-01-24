@@ -2,6 +2,8 @@ package flv
 
 import (
 	"fmt"
+
+	"github.com/gwuhaolin/livego/av"
 )
 
 type flvTag struct {
@@ -28,11 +30,11 @@ type mediaTag struct {
 		11 = Speex
 		14 = MP3 8-Khz
 		15 = Device-specific sound
-		Formats 7, 8, 14, and 15 are reserved for errs use
+		Formats 7, 8, 14, and 15 are reserved for internal use
 		AAC is supported in Flash Player 9,0,115,0 and higher.
 		Speex is supported in Flash Player 10 and higher.
 	*/
-	soundFormat SoundFormat
+	soundFormat uint8
 
 	/*
 		SoundRate: UB[2]
@@ -76,7 +78,7 @@ type mediaTag struct {
 		4: generated keyframe (reserved for server use only)
 		5: video info/command frame
 	*/
-	frameType FrameType
+	frameType uint8
 
 	/*
 		1: JPEG (currently unused)
@@ -87,7 +89,7 @@ type mediaTag struct {
 		6: Screen video version 2
 		7: AVC
 	*/
-	codecID CodecID
+	codecID uint8
 
 	/*
 		0: AVC sequence header
@@ -100,39 +102,36 @@ type mediaTag struct {
 }
 
 type Tag struct {
-	flvTag   flvTag
-	mediaTag mediaTag
+	flvt   flvTag
+	mediat mediaTag
 }
 
-func (tag *Tag) Tag() string {
-	return "flv"
-}
-
-func (tag *Tag) SoundFormat() SoundFormat {
-	return tag.mediaTag.soundFormat
+func (tag *Tag) SoundFormat() uint8 {
+	return tag.mediat.soundFormat
 }
 
 func (tag *Tag) AACPacketType() uint8 {
-	return tag.mediaTag.aacPacketType
+	return tag.mediat.aacPacketType
 }
 
 func (tag *Tag) IsKeyFrame() bool {
-	return tag.mediaTag.frameType == Key
+	return tag.mediat.frameType == av.FRAME_KEY
 }
 
 func (tag *Tag) IsSeq() bool {
-	return tag.mediaTag.frameType == Key &&
-		tag.mediaTag.avcPacketType == AVC_SEQHDR
+	return tag.mediat.frameType == av.FRAME_KEY &&
+		tag.mediat.avcPacketType == av.AVC_SEQHDR
 }
 
-func (tag *Tag) CodecID() CodecID {
-	return tag.mediaTag.codecID
+func (tag *Tag) CodecID() uint8 {
+	return tag.mediat.codecID
 }
 
 func (tag *Tag) CompositionTime() int32 {
-	return tag.mediaTag.compositionTime
+	return tag.mediat.compositionTime
 }
 
+// ParseMediaTagHeader, parse video, audio, tag header
 func (tag *Tag) ParseMediaTagHeader(b []byte, isVideo bool) (n int, err error) {
 	switch isVideo {
 	case false:
@@ -149,17 +148,15 @@ func (tag *Tag) parseAudioHeader(b []byte) (n int, err error) {
 		return
 	}
 	flags := b[0]
-	tag.mediaTag.soundFormat = SoundFormat(flags >> 4)
-	tag.mediaTag.soundRate = (flags >> 2) & 0x3
-	tag.mediaTag.soundSize = (flags >> 1) & 0x1
-	tag.mediaTag.soundType = flags & 0x1
+	tag.mediat.soundFormat = flags >> 4
+	tag.mediat.soundRate = (flags >> 2) & 0x3
+	tag.mediat.soundSize = (flags >> 1) & 0x1
+	tag.mediat.soundType = flags & 0x1
 	n++
-	switch tag.mediaTag.soundFormat {
-	case AAC:
-		tag.mediaTag.aacPacketType = b[1]
+	switch tag.mediat.soundFormat {
+	case av.SOUND_AAC:
+		tag.mediat.aacPacketType = b[1]
 		n++
-	default:
-		return -1, fmt.Errorf("not handle sound format")
 	}
 	return
 }
@@ -170,13 +167,13 @@ func (tag *Tag) parseVideoHeader(b []byte) (n int, err error) {
 		return
 	}
 	flags := b[0]
-	tag.mediaTag.frameType = FrameType(flags >> 4)
-	tag.mediaTag.codecID = CodecID(flags & 0xf)
+	tag.mediat.frameType = flags >> 4
+	tag.mediat.codecID = flags & 0xf
 	n++
-	if tag.mediaTag.frameType == Inter || tag.mediaTag.frameType == Key {
-		tag.mediaTag.avcPacketType = b[1]
+	if tag.mediat.frameType == av.FRAME_INTER || tag.mediat.frameType == av.FRAME_KEY {
+		tag.mediat.avcPacketType = b[1]
 		for i := 2; i < 5; i++ {
-			tag.mediaTag.compositionTime = tag.mediaTag.compositionTime<<8 + int32(b[i])
+			tag.mediat.compositionTime = tag.mediat.compositionTime<<8 + int32(b[i])
 		}
 		n += 4
 	}

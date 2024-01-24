@@ -14,7 +14,7 @@ type IHyConn interface {
 	SetConfig(netConfig NetConfig, config interface{}) error
 	GetConfig(netConfig NetConfig) (data interface{}, exist bool)
 	Ctx() context.Context
-	Conn() io.ReadWriter
+	Conn() net.Conn
 	Flushable
 	io.ReadWriteCloser
 }
@@ -41,7 +41,7 @@ func (hyConn *DefaultConn) Init() error {
 	return nil
 }
 
-func (hyConn *DefaultConn) Conn() io.ReadWriter {
+func (hyConn *DefaultConn) Conn() net.Conn {
 	return hyConn.conn
 }
 

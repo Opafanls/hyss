@@ -6,7 +6,7 @@ import (
 	"github.com/Opafanls/hylan/server/core/event"
 	"github.com/Opafanls/hylan/server/core/hynet"
 	"github.com/Opafanls/hylan/server/log"
-	"github.com/Opafanls/hylan/server/protocol/rtmp"
+	"github.com/Opafanls/hylan/server/protocol/rtmp_src/rtmp"
 	"github.com/Opafanls/hylan/server/session"
 	"github.com/Opafanls/hylan/server/stream"
 	"github.com/Opafanls/hylan/server/task"
@@ -73,7 +73,9 @@ func (hy *HylanServer) ServeConn(tag string, conn hynet.IHyConn) {
 		var h session.ProtocolHandler
 		switch tag {
 		case constdef.Rtmp:
-			h = rtmp.NewRtmpHandler(sess)
+			h = &rtmp.Handler{
+				Session: sess,
+			}
 		default:
 			log.Errorf(conn.Ctx(), "protocol not found %s", tag)
 		}
