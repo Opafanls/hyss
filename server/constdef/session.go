@@ -8,7 +8,7 @@ const (
 
 	// SessionSeparator ----------------------
 	SessionSeparator
-	//SessionSeparator ----------------------
+	// SessionSeparator ----------------------
 
 	SessionTypeRtmpSink
 	SessionTypeHlsSink

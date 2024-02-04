@@ -3,6 +3,8 @@ module github.com/Opafanls/hylan
 go 1.18
 
 require (
+	github.com/auth0/go-jwt-middleware v0.0.0-20190805220309-36081240882b
+	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	github.com/gin-gonic/gin v1.8.2
 	github.com/go-redis/redis/v7 v7.4.1
 	github.com/gwuhaolin/livego v0.0.0-20220914133149-42d7596e8048
@@ -15,8 +17,6 @@ require (
 	github.com/spf13/pflag v1.0.5
 	github.com/spf13/viper v1.18.2
 	github.com/stretchr/testify v1.8.4
-	github.com/torresjeff/rtmp v0.0.0-20210221235625-7a4791da2abb
-	go.uber.org/zap v1.21.0
 )
 
 require (
@@ -27,7 +27,6 @@ require (
 	github.com/go-playground/universal-translator v0.18.0 // indirect
 	github.com/go-playground/validator/v10 v10.11.1 // indirect
 	github.com/goccy/go-json v0.9.11 // indirect
-	github.com/google/uuid v1.4.0 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/kr/text v0.2.0 // indirect

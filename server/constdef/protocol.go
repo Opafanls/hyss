@@ -18,6 +18,14 @@ const (
 	MediaDataTypeMetadata
 )
 
+func (m MediaDataType) IsVideo() bool {
+	return m == MediaDataTypeVideo
+}
+
+func (m MediaDataType) IsAudio() bool {
+	return m == MediaDataTypeAudio
+}
+
 type FrameType byte
 type VCodec uint32
 type ACodec uint32

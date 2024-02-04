@@ -66,6 +66,9 @@ func (c *Client) GetHandle() av.Handler {
 type Server struct {
 	handler av.Handler
 	getter  av.GetWriter
+
+	connServer *core.ConnServer
+	conn       *core.Conn
 }
 
 func NewRtmpServer(h av.Handler, getter av.GetWriter) *Server {

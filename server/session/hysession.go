@@ -25,10 +25,11 @@ type HySessionI interface {
 	GetConfig(key constdef.SessionConfigKey) (interface{}, bool)
 	SetConfig(key constdef.SessionConfigKey, val interface{})
 	Base() base.StreamBaseI
-
+	// Push 把packet压入cache
 	Push(ctx context.Context, pkt *model.Packet) error
+	// Pull 从cache中取出packet
 	Pull(ctx context.Context) (*model.Packet, bool, error)
-	// Sink return local session
+	// Sink 增加一路sink
 	Sink(arg *SinkArg) error
 	Stat() *HySessionStat
 }
@@ -40,11 +41,11 @@ type HySessionStatI interface {
 }
 
 type HySession struct {
-	sessCtx         context.Context
-	protocolSession ProtocolHandler
-	sessionType     constdef.SessionType
-	base            base.StreamBaseI
-	config          map[constdef.SessionConfigKey]interface{}
+	sessCtx     context.Context
+	handler     ProtocolHandler
+	sessionType constdef.SessionType
+	base        base.StreamBaseI
+	config      map[constdef.SessionConfigKey]interface{}
 	hynet.IHyConn
 	cache         *HyDataCache
 	hySessionStat *HySessionStat
@@ -82,12 +83,12 @@ func (hy *HySession) Cycle() error {
 		}
 		_ = hy.Close()
 	}()
-	if hy.protocolSession == nil {
+	if hy.handler == nil {
 		log.Fatalf(hy.sessCtx, "Conn handler is nil")
 		return fmt.Errorf("conn handler is nil")
 	}
 	var info base.StreamBaseI
-	info, err = hy.protocolSession.OnStart(hy.sessCtx, hy)
+	info, err = hy.handler.OnStart(hy.sessCtx, hy)
 	if err != nil {
 		return err
 	}
@@ -95,7 +96,7 @@ func (hy *HySession) Cycle() error {
 		return fmt.Errorf("info is nil")
 	}
 	hy.base = info
-	return hy.protocolSession.OnStreaming(hy.sessCtx, info, hy)
+	return hy.handler.OnStreaming(hy.sessCtx, info, hy)
 }
 
 func (hy *HySession) Close() error {
@@ -105,7 +106,7 @@ func (hy *HySession) Close() error {
 		return fmt.Errorf("session not running")
 	}
 	hy.hySessionStat.running = false
-	err := hy.protocolSession.OnStop()
+	err := hy.handler.OnStop()
 	if err != nil {
 		log.Errorf(hy.Ctx(), "session close err: %+v", err)
 		return err
@@ -132,7 +133,7 @@ func (hy *HySession) GetConn() hynet.IHyConn {
 }
 
 func (hy *HySession) SetHandler(h ProtocolHandler) {
-	hy.protocolSession = h
+	hy.handler = h
 }
 
 func (hy *HySession) Base() base.StreamBaseI {
@@ -241,15 +242,10 @@ type BaseHandler struct {
 }
 
 type ProtocolHandler interface {
-	OnInit(ctx context.Context) error                                              //最基本的资源检查
 	OnStart(ctx context.Context, sess HySessionI) (base.StreamBaseI, error)        //开始协议通信，握手之类的初始化工作
 	OnStreaming(ctx context.Context, info base.StreamBaseI, sess HySessionI) error //开始推流
 	//OnMedia(ctx context.Context, w *model.Packet) error                            //获取到流媒体数据
 	OnStop() error //关闭通信
-}
-
-func (b *BaseHandler) OnInit(ctx context.Context) error {
-	return nil
 }
 
 func (b *BaseHandler) OnStart(ctx context.Context, sess HySessionI) (base.StreamBaseI, error) {
