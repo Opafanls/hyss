@@ -5,7 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	"github.com/Opafanls/hylan/server/protocol/protocol/amf"
+	amf2 "github.com/Opafanls/hylan/server/protocol/container/amf"
 	"github.com/Opafanls/hylan/server/protocol/rtmp_src/av"
 	"github.com/Opafanls/hylan/server/protocol/rtmp_src/configure"
 	log "github.com/sirupsen/logrus"
@@ -41,8 +41,8 @@ type ConnClient struct {
 	streamid   uint32
 	isRTMPS    bool
 	conn       *Conn
-	encoder    *amf.Encoder
-	decoder    *amf.Decoder
+	encoder    *amf2.Encoder
+	decoder    *amf2.Decoder
 	bytesw     *bytes.Buffer
 }
 
@@ -50,12 +50,12 @@ func NewConnClient() *ConnClient {
 	return &ConnClient{
 		transID: 1,
 		bytesw:  bytes.NewBuffer(nil),
-		encoder: &amf.Encoder{},
-		decoder: &amf.Decoder{},
+		encoder: &amf2.Encoder{},
+		decoder: &amf2.Decoder{},
 	}
 }
 
-func (connClient *ConnClient) DecodeBatch(r io.Reader, ver amf.Version) (ret []interface{}, err error) {
+func (connClient *ConnClient) DecodeBatch(r io.Reader, ver amf2.Version) (ret []interface{}, err error) {
 	vs, err := connClient.decoder.DecodeBatch(r, ver)
 	return vs, err
 }
@@ -73,7 +73,7 @@ func (connClient *ConnClient) readRespMsg() error {
 		switch rc.TypeID {
 		case 20, 17:
 			r := bytes.NewReader(rc.Data)
-			vs, _ := connClient.decoder.DecodeBatch(r, amf.AMF0)
+			vs, _ := connClient.decoder.DecodeBatch(r, amf2.AMF0)
 
 			log.Debugf("readRespMsg: vs=%v", vs)
 			for k, v := range vs {
@@ -107,8 +107,8 @@ func (connClient *ConnClient) readRespMsg() error {
 							return ErrFail
 						}
 					}
-				case amf.Object:
-					objmap := v.(amf.Object)
+				case amf2.Object:
+					objmap := v.(amf2.Object)
 					switch connClient.curcmdName {
 					case cmdConnect:
 						code, ok := objmap["code"]
@@ -132,7 +132,7 @@ func (connClient *ConnClient) readRespMsg() error {
 func (connClient *ConnClient) writeMsg(args ...interface{}) error {
 	connClient.bytesw.Reset()
 	for _, v := range args {
-		if _, err := connClient.encoder.Encode(connClient.bytesw, v, amf.AMF0); err != nil {
+		if _, err := connClient.encoder.Encode(connClient.bytesw, v, amf2.AMF0); err != nil {
 			return err
 		}
 	}
@@ -151,7 +151,7 @@ func (connClient *ConnClient) writeMsg(args ...interface{}) error {
 }
 
 func (connClient *ConnClient) writeConnectMsg() error {
-	event := make(amf.Object)
+	event := make(amf2.Object)
 	event["app"] = connClient.app
 	event["type"] = "nonprivate"
 	event["flashVer"] = "FMS.3.1"
@@ -333,7 +333,7 @@ func (connClient *ConnClient) Write(c ChunkStream) error {
 	if c.TypeID == av.TAG_SCRIPTDATAAMF0 ||
 		c.TypeID == av.TAG_SCRIPTDATAAMF3 {
 		var err error
-		if c.Data, err = amf.MetaDataReform(c.Data, amf.ADD); err != nil {
+		if c.Data, err = amf2.MetaDataReform(c.Data, amf2.ADD); err != nil {
 			return err
 		}
 		c.Length = uint32(len(c.Data))

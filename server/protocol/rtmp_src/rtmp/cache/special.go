@@ -2,7 +2,7 @@ package cache
 
 import (
 	"bytes"
-	"github.com/Opafanls/hylan/server/protocol/protocol/amf"
+	"github.com/Opafanls/hylan/server/protocol/container/amf"
 	"github.com/Opafanls/hylan/server/protocol/rtmp_src/av"
 
 	log "github.com/sirupsen/logrus"

@@ -2,7 +2,6 @@ package srv
 
 import (
 	"github.com/Opafanls/hylan/server/base"
-	"github.com/Opafanls/hylan/server/constdef"
 	"github.com/Opafanls/hylan/server/core/event"
 	"github.com/Opafanls/hylan/server/core/hynet"
 	"github.com/Opafanls/hylan/server/log"
@@ -44,10 +43,10 @@ func (hy *HylanServer) listeners() {
 			Ip:   "",
 			Port: 1935,
 		}),
-		NewHttpServer(&hynet.HttpServeConfig{
-			Ip:   "",
-			Port: 6789,
-		}),
+		//NewHttpServer(&hynet.HttpServeConfig{
+		//	Ip:   "",
+		//	Port: 8080,
+		//}),
 	}
 
 	for _, listener := range listeners {
@@ -69,11 +68,11 @@ func (hy *HylanServer) wait() {
 // ServeConn 所有tcp连接相关的请求都会统一打到这里
 func (hy *HylanServer) ServeConn(tag string, conn hynet.IHyConn) {
 	task.SubmitTask0(conn.Ctx(), func() {
-		sess := session.NewHySession(conn.Ctx(), constdef.SessionTypeInvalid, conn, base.NewEmptyBase())
+		sess := session.NewHySession(conn.Ctx(), conn, base.NewEmptyBase())
 		var h session.ProtocolHandler
 		switch tag {
-		case constdef.Rtmp:
-			h = rtmp.NewRtmpServer(rtmp.NewStream(), nil)
+		case base.Rtmp:
+			h = rtmp.NewHandler()
 		default:
 			log.Errorf(conn.Ctx(), "protocol not found %s", tag)
 		}

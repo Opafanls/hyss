@@ -1,12 +1,14 @@
 package rtmp
 
 import (
+	"context"
 	"fmt"
 	"github.com/Opafanls/hylan/server/protocol/container/flv"
 	"github.com/Opafanls/hylan/server/protocol/rtmp_src/av"
 	"github.com/Opafanls/hylan/server/protocol/rtmp_src/configure"
 	"github.com/Opafanls/hylan/server/protocol/rtmp_src/rtmp/core"
 	"github.com/Opafanls/hylan/server/protocol/rtmp_src/uid"
+	"github.com/Opafanls/hylan/server/session"
 	"net"
 	"net/url"
 	"reflect"
@@ -94,76 +96,115 @@ func (s *Server) Serve(listener net.Listener) (err error) {
 		conn := core.NewConn(netconn, 4*1024)
 		log.Debug("new client, connect remote: ", conn.RemoteAddr().String(),
 			"local:", conn.LocalAddr().String())
-		go s.handleConn(conn)
+		go func() {
+			err := s.handleConn(conn)
+			log.Infof("handleConn done with err: %+v", err)
+			if err != nil {
+				log.Errorf("handleConn err with close err: %+v", conn.Close())
+				return
+			}
+		}()
 	}
 }
 
 func (s *Server) handleConn(conn *core.Conn) error {
+	err := s.connInit(conn)
+	if err != nil {
+		return err
+	}
+	err = s.oncheck()
+	if err != nil {
+		return err
+	}
+	return s.handleServerConn(context.Background())
+}
+
+func (s *Server) connInit(conn *core.Conn) error {
 	if err := conn.HandshakeServer(); err != nil {
-		conn.Close()
 		log.Error("handleConn HandshakeServer err: ", err)
 		return err
 	}
 	connServer := core.NewConnServer(conn)
+	s.connServer = connServer
+	return nil
+}
 
+func (s *Server) oncheck() error {
+	connServer := s.connServer
 	if err := connServer.ReadMsg(); err != nil {
-		conn.Close()
 		log.Error("handleConn read msg err: ", err)
 		return err
 	}
 
-	appname, name, _ := connServer.GetInfo()
-
+	appname, name, rtmpUrl := connServer.GetInfo()
+	connServer.Appname = appname
+	connServer.Name = name
+	connServer.Url = rtmpUrl
 	if ret := configure.CheckAppName(appname); !ret {
 		err := fmt.Errorf("application name=%s is not configured", appname)
-		conn.Close()
 		log.Error("CheckAppName err: ", err)
 		return err
 	}
 
+	return nil
+}
+
+func (s *Server) handleServerConn(ctx context.Context) error {
+	connServer := s.connServer
 	log.Debugf("handleConn: IsPublisher=%v", connServer.IsPublisher())
 	if connServer.IsPublisher() {
-		if configure.Config.GetBool("rtmp_noauth") {
-			key, err := configure.RoomKeys.GetKey(name)
-			if err != nil {
-				err := fmt.Errorf("Cannot create key err=%s", err.Error())
-				conn.Close()
-				log.Error("GetKey err: ", err)
-				return err
-			}
-			name = key
-		}
-		channel, err := configure.RoomKeys.GetChannel(name)
+		return s.Publish(ctx, nil)
+	} else {
+		return s.OnSink(ctx, nil)
+	}
+}
+
+func (s *Server) OnSink(ctx context.Context, info *session.SinkArg) error {
+	writer := NewVirWriter(s.connServer)
+	log.Debugf("new player: %+v", writer.Info())
+	s.handler.HandleWriter(writer)
+	return nil
+}
+
+func (s *Server) Publish(ctx context.Context, arg *session.SourceArg) error {
+	var (
+		connServer = s.connServer
+		appname    = connServer.Appname
+		name       = connServer.Name
+	)
+	if configure.Config.GetBool("rtmp_noauth") {
+		key, err := configure.RoomKeys.GetKey(name)
 		if err != nil {
-			err := fmt.Errorf("invalid key err=%s", err.Error())
-			conn.Close()
-			log.Error("CheckKey err: ", err)
+			err := fmt.Errorf("Cannot create key err=%s", err.Error())
+			log.Error("GetKey err: ", err)
 			return err
 		}
-		connServer.PublishInfo.Name = channel
-		if pushlist, ret := configure.GetStaticPushUrlList(appname); ret && (pushlist != nil) {
-			log.Debugf("GetStaticPushUrlList: %v", pushlist)
-		}
-		reader := NewVirReader(connServer)
-		s.handler.HandleReader(reader)
-		log.Debugf("new publisher: %+v", reader.Info())
+		name = key
+	}
+	channel, err := configure.RoomKeys.GetChannel(name)
+	if err != nil {
+		err := fmt.Errorf("invalid key err=%s", err.Error())
+		log.Error("CheckKey err: ", err)
+		return err
+	}
+	connServer.PublishInfo.Name = channel
+	if pushlist, ret := configure.GetStaticPushUrlList(appname); ret && (pushlist != nil) {
+		log.Debugf("GetStaticPushUrlList: %v", pushlist)
+	}
+	reader := NewVirReader(connServer)
+	s.handler.HandleReader(reader)
+	log.Infof("new publisher: %+v with getter: %v, flv_archive: %v", reader.Info(), s.getter, configure.Config.GetBool("flv_archive"))
 
-		if s.getter != nil {
-			writeType := reflect.TypeOf(s.getter)
-			log.Debugf("handleConn:writeType=%v", writeType)
-			writer := s.getter.GetWriter(reader.Info())
-			s.handler.HandleWriter(writer)
-		}
-		if configure.Config.GetBool("flv_archive") {
-			flvWriter := new(flv.FlvDvr)
-			s.handler.HandleWriter(flvWriter.GetWriter(reader.Info()))
-		}
-	} else {
-		writer := NewVirWriter(connServer)
-		log.Debugf("new player: %+v", writer.Info())
+	if s.getter != nil {
+		writeType := reflect.TypeOf(s.getter)
+		log.Debugf("handleConn:writeType=%v", writeType)
+		writer := s.getter.GetWriter(reader.Info())
 		s.handler.HandleWriter(writer)
 	}
-
+	if configure.Config.GetBool("flv_archive") {
+		flvWriter := new(flv.FlvDvr)
+		s.handler.HandleWriter(flvWriter.GetWriter(reader.Info()))
+	}
 	return nil
 }
 

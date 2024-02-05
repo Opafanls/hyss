@@ -64,12 +64,12 @@ func (tcpServer *TcpServer) Name() string {
 }
 
 func (tcpServer *TcpServer) Serve(tag string) error {
-	addr := net.TCPAddr{
-		IP:   net.ParseIP(tcpServer.ip),
-		Port: tcpServer.port,
-	}
+	//addr := net.TCPAddr{
+	//	IP:   net.ParseIP(tcpServer.ip),
+	//	Port: tcpServer.port,
+	//}
 	tcpServer.running = true
-	listener, err := net.Listen("tcp", addr.String())
+	listener, err := net.Listen("tcp", ":1935")
 	if err != nil {
 		return err
 	}

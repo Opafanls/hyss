@@ -5,25 +5,22 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/Opafanls/hylan/server/base"
-	"github.com/Opafanls/hylan/server/constdef"
 	"github.com/Opafanls/hylan/server/core/event"
 	"github.com/Opafanls/hylan/server/core/hynet"
 	"github.com/Opafanls/hylan/server/log"
 	"github.com/Opafanls/hylan/server/model"
-	"github.com/Opafanls/hylan/server/protocol/container"
 	"sync"
-	"time"
 )
 
 type HySessionI interface {
 	Ctx() context.Context
 	Cycle() error
-	SessionType() constdef.SessionType
+	SessionType() base.SessionType
 	Close() error
 	SetHandler(h ProtocolHandler)
 	GetConn() hynet.IHyConn
-	GetConfig(key constdef.SessionConfigKey) (interface{}, bool)
-	SetConfig(key constdef.SessionConfigKey, val interface{})
+	GetConfig(key base.SessionKey) (interface{}, bool)
+	SetConfig(key base.SessionKey, val interface{})
 	Base() base.StreamBaseI
 	// Push 把packet压入cache
 	Push(ctx context.Context, pkt *model.Packet) error
@@ -41,33 +38,26 @@ type HySessionStatI interface {
 }
 
 type HySession struct {
-	sessCtx     context.Context
-	handler     ProtocolHandler
-	sessionType constdef.SessionType
-	base        base.StreamBaseI
-	config      map[constdef.SessionConfigKey]interface{}
+	sessCtx context.Context
+	handler ProtocolHandler
+	base    base.StreamBaseI
 	hynet.IHyConn
 	cache         *HyDataCache
 	hySessionStat *HySessionStat
 	l             sync.Mutex
 }
 
-func NewHySession(ctx context.Context, sessionType constdef.SessionType, conn hynet.IHyConn, base base.StreamBaseI, kvs ...*model.KV) HySessionI {
+func NewHySession(ctx context.Context, conn hynet.IHyConn, baseStreamInfo base.StreamBaseI, kvs ...*model.KV) HySessionI {
 	hySession := &HySession{
 		sessCtx:       ctx,
-		sessionType:   sessionType,
-		base:          base,
-		config:        make(map[constdef.SessionConfigKey]interface{}, 2+len(kvs)),
+		base:          baseStreamInfo,
 		hySessionStat: &HySessionStat{running: true},
 	}
 	hySession.IHyConn = conn
 	hySession.cache = NewHyDataCache([]uint64{
-		constdef.DefaultCacheSize,
+		base.DefaultCacheSize,
 		16,
 	})
-	for _, kv := range kvs {
-		hySession.config[kv.K] = kv.V
-	}
 	return hySession
 }
 
@@ -81,7 +71,6 @@ func (hy *HySession) Cycle() error {
 		if err != nil {
 			log.Errorf(hy.sessCtx, "session closed with err: %+v", err)
 		}
-		_ = hy.Close()
 	}()
 	if hy.handler == nil {
 		log.Fatalf(hy.sessCtx, "Conn handler is nil")
@@ -92,11 +81,17 @@ func (hy *HySession) Cycle() error {
 	if err != nil {
 		return err
 	}
+	log.Infof(hy.sessCtx, "OnStart with info: %+v", info)
 	if info == nil {
 		return fmt.Errorf("info is nil")
 	}
 	hy.base = info
-	return hy.handler.OnStreaming(hy.sessCtx, info, hy)
+	sessionTyp := hy.SessionType()
+	if sessionTyp.IsSource() {
+		return hy.handler.OnPublish(hy.sessCtx, &SourceArg{})
+	} else {
+		return hy.handler.OnSink(hy.sessCtx, &SinkArg{})
+	}
 }
 
 func (hy *HySession) Close() error {
@@ -116,7 +111,7 @@ func (hy *HySession) Close() error {
 		log.Errorf(hy.Ctx(), "close Conn failed: %+v", err)
 	}
 	if hy.base != nil {
-		st := BaseSessionType(hy)
+		st := hy.SessionType()
 		if st.IsSink() {
 			return event.PushEvent0(hy.sessCtx, event.RemoveSinkSession, hy.base.ID())
 		} else {
@@ -140,93 +135,44 @@ func (hy *HySession) Base() base.StreamBaseI {
 	return hy.base
 }
 
-func (hy *HySession) GetConfig(key constdef.SessionConfigKey) (interface{}, bool) {
-	val, exist := hy.config[key]
-	return val, exist
+func (hy *HySession) GetConfig(key base.SessionKey) (interface{}, bool) {
+	return hy.base.GetParam(key)
 }
 
-func (hy *HySession) SetConfig(key constdef.SessionConfigKey, val interface{}) {
+func (hy *HySession) SetConfig(key base.SessionKey, val interface{}) {
 	switch key {
-	case constdef.ConfigKeySessionBase:
+	case base.ConfigKeySessionBase:
 		hy.base = val.(base.StreamBaseI)
-	case constdef.ConfigKeyVideoCodec:
-		hy.hySessionStat.videoCodec = val.(constdef.VCodec)
-	case constdef.ConfigKeyAudioCodec:
-		hy.hySessionStat.audioCodec = val.(constdef.ACodec)
-	case constdef.ConfigKeySessionType:
-		hy.sessionType = constdef.SessionType(val.(int))
+	case base.ConfigKeyVideoCodec:
+		hy.hySessionStat.videoCodec = val.(base.VCodec)
+	case base.ConfigKeyAudioCodec:
+		hy.hySessionStat.audioCodec = val.(base.ACodec)
+		hy.base.SetParam(key, val)
 	}
-	hy.config[key] = val
 }
 
 func (hy *HySession) Sink(arg *SinkArg) error {
-	var err error
-	sourceStat := arg.Local.Stat()
-	sourceSess := arg.Local
-	var rw0 container.ReadWriter
-	rw, ok := arg.Remote.GetConfig(constdef.ConfigKeySinkRW)
-	if !ok {
-		return fmt.Errorf("sink ConfigKeySinkRW not set")
-	} else {
-		if rw0, ok = rw.(container.ReadWriter); !ok {
-			return fmt.Errorf("container rw cast failed")
-		}
-	}
-	for sourceStat.running {
-		pkt, exist, err := sourceSess.Pull(hy.sessCtx)
-		if err != nil {
-			return fmt.Errorf("pull packet err: %+v", err)
-		}
-		if !exist {
-			time.Sleep(time.Millisecond * 100)
-			continue
-		}
-		switch pkt.MediaType {
-		case constdef.MediaDataTypeVideo:
-			if err := rw0.Write(pkt); err != nil {
-				if shouldContainer := rw0.OnError(err); shouldContainer {
-					log.Warnf(arg.Ctx, "write pkt warn: %+v", err)
-					continue
-				} else {
-					log.Errorf(arg.Ctx, "write pkt failed: %+v", err)
-					return err
-				}
-			}
-		case constdef.MediaDataTypeAudio:
-		}
-	}
-	return err
+	return nil
 }
 
 func (hy *HySession) Push(ctx context.Context, pkt *model.Packet) error {
-	if hy.sessionType != constdef.SessionTypeRtmpSource {
-		return constdef.SessionCannotPushMedia
-	}
-	hy.cache.Push(pkt)
 	return nil
 }
 
 func (hy *HySession) Pull(ctx context.Context) (*model.Packet, bool, error) {
-	if hy.sessionType != constdef.SessionTypeRtmpSource {
-		return nil, false, constdef.SessionCannotPullMedia
-	}
-	data := hy.cache.Pull()
-	return data, true, nil
+	return nil, true, nil
 }
 
-func (hy *HySession) SessionType() constdef.SessionType {
-	return hy.sessionType
+func (hy *HySession) SessionType() base.SessionType {
+	v, e := hy.base.GetParam(base.SessionInitParamKeyStreamType)
+	if !e {
+		return base.SessionTypeInvalid
+	}
+	return v.(base.SessionType)
 }
 
 func (hy *HySession) MarshalJSON() ([]byte, error) {
 	m := make(map[string]interface{})
-	m["stream_type"] = hy.sessionType
-	if hy.sessionType == constdef.SessionTypeRtmpSource {
-		m["video_pkt_recv"] = hy.hySessionStat.videoPktNum
-		m["audio_pkt_recv"] = hy.hySessionStat.audioPktNum
-		m["videoCodec"] = hy.hySessionStat.videoCodec
-		m["audioCodec"] = hy.hySessionStat.audioCodec
-	}
 	return json.Marshal(m)
 }
 
@@ -242,10 +188,14 @@ type BaseHandler struct {
 }
 
 type ProtocolHandler interface {
-	OnStart(ctx context.Context, sess HySessionI) (base.StreamBaseI, error)        //开始协议通信，握手之类的初始化工作
-	OnStreaming(ctx context.Context, info base.StreamBaseI, sess HySessionI) error //开始推流
-	//OnMedia(ctx context.Context, w *model.Packet) error                            //获取到流媒体数据
-	OnStop() error //关闭通信
+	OnStart(ctx context.Context, sess HySessionI) (base.StreamBaseI, error) //开始协议通信，握手之类的初始化工作
+	OnPublish(ctx context.Context, sourceArg *SourceArg) error              //开始推流
+	OnSink(ctx context.Context, sinkArg *SinkArg) error                     //开始拉流
+	OnStop() error                                                          //关闭通信
+}
+
+type PlayHandler interface {
+	OnPlay()
 }
 
 func (b *BaseHandler) OnStart(ctx context.Context, sess HySessionI) (base.StreamBaseI, error) {
@@ -267,19 +217,24 @@ func (b *BaseHandler) OnStop() error {
 	return nil
 }
 
-func (b *BaseHandler) OnStreaming(ctx context.Context, info base.StreamBaseI, sess HySessionI) error {
-	if sess.SessionType() != constdef.SessionTypeRtmpSource {
+func (b *BaseHandler) OnSink(ctx context.Context, arg *SinkArg) error {
+	return nil
+}
+
+func (b *BaseHandler) OnPublish(ctx context.Context, arg *SourceArg) error {
+	sess := b.Sess
+	info := sess.Base()
+	if sess.SessionType() != base.SessionTypeRtmpSource {
 		return nil
 	}
-	sess.SetConfig(constdef.ConfigKeySessionBase, info)
-	sessType := BaseSessionType(sess)
+	sessType := sess.SessionType()
 	var err error
 	if sessType.IsSource() {
 		err = event.PushEvent0(ctx, event.CreateSourceSession, NewStreamEvent(info, sess))
 	} else {
 		sourceID := info.ID()
 		sinkID := SinkID(sourceID)
-		info.SetParam(base.ParamKeyID, sinkID)
+		info.SetParam(base.SessionInitParamKeyID, sinkID)
 		err = event.PushEvent0(ctx, event.CreateSinkSession, &model.KVStr{K: sourceID, V: sinkID})
 	}
 	if err != nil {
@@ -290,18 +245,18 @@ func (b *BaseHandler) OnStreaming(ctx context.Context, info base.StreamBaseI, se
 	return err
 }
 
-func NewStreamEvent(info base.StreamBaseI, sess HySessionI) map[constdef.SessionConfigKey]interface{} {
-	m := make(map[constdef.SessionConfigKey]interface{})
-	m[constdef.ConfigKeyStreamBase] = info
-	m[constdef.ConfigKeyStreamSess] = sess
+func NewStreamEvent(info base.StreamBaseI, sess HySessionI) map[base.SessionKey]interface{} {
+	m := make(map[base.SessionKey]interface{})
+	m[base.ConfigKeyStreamBase] = info
+	m[base.ConfigKeyStreamSess] = sess
 	return m
 }
 
 type HySessionStat struct {
 	videoPktNum int
 	audioPktNum int
-	videoCodec  constdef.VCodec
-	audioCodec  constdef.ACodec
+	videoCodec  base.VCodec
+	audioCodec  base.ACodec
 
 	running bool
 }

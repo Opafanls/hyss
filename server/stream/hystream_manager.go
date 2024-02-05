@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/Opafanls/hylan/server/base"
-	"github.com/Opafanls/hylan/server/constdef"
 	"github.com/Opafanls/hylan/server/core/event"
 	"github.com/Opafanls/hylan/server/log"
 	"github.com/Opafanls/hylan/server/model"
@@ -80,10 +79,10 @@ func (streamManager *HyStreamManager) GetStreamByID(id string) HyStreamI {
 func (streamManager *HyStreamManager) RemoveStreamSink(source, sink string) error {
 	s := streamManager.GetStreamByID(source)
 	if s == nil {
-		return constdef.NewHyFunErr("RemoveStreamSink", fmt.Errorf("source not found"))
+		return base.NewHyFunErr("RemoveStreamSink", fmt.Errorf("source not found"))
 	}
 	if err := s.RmSink(sink); err != nil {
-		return constdef.NewHyFunErr("RemoveStreamSink", err)
+		return base.NewHyFunErr("RemoveStreamSink", err)
 	}
 	return nil
 }
@@ -99,9 +98,9 @@ func (s *streamHandler) Handle(e event.HyEvent, data *model.EventWrap) {
 	log.Infof(data.Ctx, "handle event %d, data: %+v", e, data.Data)
 	switch e {
 	case event.CreateSourceSession:
-		m := data.Data.(map[constdef.SessionConfigKey]interface{})
-		baseI := m[constdef.ConfigKeyStreamBase].(base.StreamBaseI)
-		sess := m[constdef.ConfigKeyStreamSess].(session.HySessionI)
+		m := data.Data.(map[base.SessionKey]interface{})
+		baseI := m[base.ConfigKeyStreamBase].(base.StreamBaseI)
+		sess := m[base.ConfigKeyStreamSess].(session.HySessionI)
 		stream := NewHyStream(baseI, sess)
 		DefaultHyStreamManager.AddStream(stream)
 	case event.CreateSinkSession:

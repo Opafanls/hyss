@@ -2,12 +2,13 @@ package flv
 
 import (
 	"fmt"
-	"github.com/Opafanls/hylan/server/protocol/protocol/amf"
+	"github.com/Opafanls/hylan/server/protocol/container/amf"
 	"github.com/Opafanls/hylan/server/protocol/rtmp_src/av"
 	"github.com/Opafanls/hylan/server/protocol/rtmp_src/configure"
 	"github.com/Opafanls/hylan/server/protocol/rtmp_src/uid"
 	"github.com/Opafanls/hylan/server/util/pio"
 	log "github.com/sirupsen/logrus"
+	"io"
 	"os"
 	"path"
 	"strings"
@@ -53,7 +54,7 @@ type FLVWriter struct {
 	app, title, url string
 	buf             []byte
 	closed          chan struct{}
-	ctx             *os.File
+	ctx             io.WriteCloser
 	closedWriter    bool
 }
 
@@ -69,9 +70,9 @@ func NewFLVWriter(app, title, url string, ctx *os.File) *FLVWriter {
 		buf:     make([]byte, headerLen),
 	}
 
-	ret.ctx.Write(flvHeader)
+	_, _ = ret.ctx.Write(flvHeader)
 	pio.PutI32BE(ret.buf[:4], 0)
-	ret.ctx.Write(ret.buf[:4])
+	_, _ = ret.ctx.Write(ret.buf[:4])
 
 	return ret
 }

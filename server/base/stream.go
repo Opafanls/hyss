@@ -3,30 +3,41 @@ package base
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/Opafanls/hylan/server/constdef"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
 )
 
+type SessionKey string
+
+// {usage}{key_name}
 const (
-	ParamKeyVhost    = "StreamBaseVhost"
-	ParamKeyApp      = "StreamBaseApp"
-	ParamKeyName     = "StreamBaseName"
-	ParamKeyIsSource = "StreamBaseIsSource"
-	ParamKeyID       = "StreamBaseID"
+	SessionInitParamKeyVhost      SessionKey = "StreamBaseVhost"
+	SessionInitParamKeyApp        SessionKey = "StreamBaseApp"
+	SessionInitParamKeyStreamType SessionKey = "StreamBaseStreamType"
+	SessionInitParamKeyName       SessionKey = "StreamBaseName"
+	SessionInitParamKeyID         SessionKey = "StreamBaseID"
+
+	ConfigKeyStreamBase SessionKey = "ConfigKeyStreamBase"
+	ConfigKeyStreamSess SessionKey = "ConfigKeyStreamSess"
+
+	ConfigKeySessionBase SessionKey = "ConfigKeySessionBase"
+	ConfigKeyVideoCodec  SessionKey = "ConfigKeyVideoCodec"
+	ConfigKeyAudioCodec  SessionKey = "ConfigKeyAudioCodec"
 )
 
 type StreamBaseI interface {
 	ID() string
 	URL() *url.URL
-	GetParam(key string) string
-	SetParam(key, value string)
+	GetParam(key SessionKey) (interface{}, bool)
+	SetParam(key SessionKey, value interface{})
 	Vhost() string
 	App() string
 	Name() string
 }
+
+var _ = StreamBaseI(&StreamBase{})
 
 type StreamBase struct {
 	id          string
@@ -36,7 +47,7 @@ type StreamBase struct {
 	rw          *sync.RWMutex
 	url         *url.URL
 	onTimestamp int64
-	paramMap    map[string]string
+	paramMap    map[SessionKey]interface{}
 }
 
 func NewEmptyBase() *StreamBase {
@@ -60,7 +71,7 @@ func NewBase0(values *url.URL) *StreamBase {
 
 func newEmpty() *StreamBase {
 	streamBase := &StreamBase{}
-	streamBase.paramMap = make(map[string]string)
+	streamBase.paramMap = make(map[SessionKey]interface{})
 	streamBase.onTimestamp = time.Now().UnixNano()
 	streamBase.rw = &sync.RWMutex{}
 	return streamBase
@@ -74,27 +85,27 @@ func (streamBase *StreamBase) URL() *url.URL {
 	return streamBase.url
 }
 
-func (streamBase *StreamBase) GetParam(key string) string {
+func (streamBase *StreamBase) GetParam(key SessionKey) (interface{}, bool) {
 	streamBase.rw.RLock()
-	val := streamBase.paramMap[key]
+	val, exist := streamBase.paramMap[key]
 	streamBase.rw.RUnlock()
-	return val
+	return val, exist
 }
 
-func (streamBase *StreamBase) SetParam(key, val string) {
+func (streamBase *StreamBase) SetParam(key SessionKey, val interface{}) {
 	streamBase.rw.Lock()
 	streamBase.paramMap[key] = val
 	streamBase.rw.Unlock()
 	defer streamBase.format()
 	switch key {
-	case ParamKeyVhost:
-		streamBase.vhost = val
-	case ParamKeyApp:
-		streamBase.app = val
-	case ParamKeyName:
-		streamBase.name = val
-	case ParamKeyID:
-		streamBase.id = val
+	case SessionInitParamKeyVhost:
+		streamBase.vhost = val.(string)
+	case SessionInitParamKeyApp:
+		streamBase.app = val.(string)
+	case SessionInitParamKeyName:
+		streamBase.name = val.(string)
+	case SessionInitParamKeyID:
+		streamBase.id = val.(string)
 	default:
 		return
 	}
@@ -143,7 +154,7 @@ func getPad(val string) string {
 	if val != "" {
 		return val
 	}
-	return constdef.StreamPad
+	return StreamPad
 }
 
 func (streamBase *StreamBase) MarshalJSON() ([]byte, error) {

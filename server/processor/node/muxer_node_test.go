@@ -3,7 +3,7 @@ package node
 import (
 	"context"
 	"fmt"
-	"github.com/Opafanls/hylan/server/constdef"
+	"github.com/Opafanls/hylan/server/base"
 	"github.com/Opafanls/hylan/server/core/pipeline"
 	"github.com/Opafanls/hylan/server/model"
 	"reflect"
@@ -59,6 +59,6 @@ func TestMuxerNode_Action(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := &model.Packet{}
-	p.MediaType = constdef.MediaDataTypeVideo
+	p.MediaType = base.MediaDataTypeVideo
 	mockPipe.Fire(context.Background(), p)
 }

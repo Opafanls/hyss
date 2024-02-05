@@ -3,7 +3,7 @@ package core
 import (
 	"bytes"
 	"fmt"
-	"github.com/Opafanls/hylan/server/protocol/protocol/amf"
+	amf2 "github.com/Opafanls/hylan/server/protocol/container/amf"
 	"github.com/Opafanls/hylan/server/protocol/rtmp_src/av"
 	"io"
 
@@ -69,9 +69,12 @@ type ConnServer struct {
 	transactionID int
 	ConnInfo      ConnectInfo
 	PublishInfo   PublishInfo
-	decoder       *amf.Decoder
-	encoder       *amf.Encoder
+	decoder       *amf2.Decoder
+	encoder       *amf2.Encoder
 	bytesw        *bytes.Buffer
+	Appname       string
+	Name          string
+	Url           string
 }
 
 func NewConnServer(conn *Conn) *ConnServer {
@@ -79,15 +82,15 @@ func NewConnServer(conn *Conn) *ConnServer {
 		conn:     conn,
 		streamID: 1,
 		bytesw:   bytes.NewBuffer(nil),
-		decoder:  &amf.Decoder{},
-		encoder:  &amf.Encoder{},
+		decoder:  &amf2.Decoder{},
+		encoder:  &amf2.Encoder{},
 	}
 }
 
 func (connServer *ConnServer) writeMsg(csid, streamID uint32, args ...interface{}) error {
 	connServer.bytesw.Reset()
 	for _, v := range args {
-		if _, err := connServer.encoder.Encode(connServer.bytesw, v, amf.AMF0); err != nil {
+		if _, err := connServer.encoder.Encode(connServer.bytesw, v, amf2.AMF0); err != nil {
 			return err
 		}
 	}
@@ -115,8 +118,8 @@ func (connServer *ConnServer) connect(vs []interface{}) error {
 				return ErrReq
 			}
 			connServer.transactionID = id
-		case amf.Object:
-			obimap := v.(amf.Object)
+		case amf2.Object:
+			obimap := v.(amf2.Object)
 			if app, ok := obimap["app"]; ok {
 				connServer.ConnInfo.App = app.(string)
 			}
@@ -150,11 +153,11 @@ func (connServer *ConnServer) connectResp(cur *ChunkStream) error {
 	c = connServer.conn.NewSetChunkSize(uint32(1024))
 	connServer.conn.Write(&c)
 
-	resp := make(amf.Object)
+	resp := make(amf2.Object)
 	resp["fmsVer"] = "FMS/3,0,1,123"
 	resp["capabilities"] = 31
 
-	event := make(amf.Object)
+	event := make(amf2.Object)
 	event["level"] = "status"
 	event["code"] = "NetConnection.Connect.Success"
 	event["description"] = "Connection succeeded."
@@ -168,7 +171,7 @@ func (connServer *ConnServer) createStream(vs []interface{}) error {
 		case string:
 		case float64:
 			connServer.transactionID = int(v.(float64))
-		case amf.Object:
+		case amf2.Object:
 		}
 	}
 	return nil
@@ -190,7 +193,7 @@ func (connServer *ConnServer) publishOrPlay(vs []interface{}) error {
 		case float64:
 			id := int(v.(float64))
 			connServer.transactionID = id
-		case amf.Object:
+		case amf2.Object:
 		}
 	}
 
@@ -198,7 +201,7 @@ func (connServer *ConnServer) publishOrPlay(vs []interface{}) error {
 }
 
 func (connServer *ConnServer) publishResp(cur *ChunkStream) error {
-	event := make(amf.Object)
+	event := make(amf2.Object)
 	event["level"] = "status"
 	event["code"] = "NetStream.Publish.Start"
 	event["description"] = "Start publishing."
@@ -209,7 +212,7 @@ func (connServer *ConnServer) playResp(cur *ChunkStream) error {
 	connServer.conn.SetRecorded()
 	connServer.conn.SetBegin()
 
-	event := make(amf.Object)
+	event := make(amf2.Object)
 	event["level"] = "status"
 	event["code"] = "NetStream.Play.Reset"
 	event["description"] = "Playing and resetting stream."
@@ -241,12 +244,12 @@ func (connServer *ConnServer) playResp(cur *ChunkStream) error {
 }
 
 func (connServer *ConnServer) handleCmdMsg(c *ChunkStream) error {
-	amfType := amf.AMF0
+	amfType := amf2.AMF0
 	if c.TypeID == 17 {
 		c.Data = c.Data[1:]
 	}
 	r := bytes.NewReader(c.Data)
-	vs, err := connServer.decoder.DecodeBatch(r, amf.Version(amfType))
+	vs, err := connServer.decoder.DecodeBatch(r, amf2.Version(amfType))
 	if err != nil && err != io.EOF {
 		return err
 	}
@@ -308,7 +311,6 @@ func (connServer *ConnServer) ReadMsg() error {
 		if err := connServer.conn.Read(&c); err != nil {
 			return err
 		}
-		log.Infof("typeID: %d", c.TypeID)
 		switch c.TypeID {
 		case 20, 17:
 			if err := connServer.handleCmdMsg(&c); err != nil {
@@ -330,7 +332,7 @@ func (connServer *ConnServer) Write(c ChunkStream) error {
 	if c.TypeID == av.TAG_SCRIPTDATAAMF0 ||
 		c.TypeID == av.TAG_SCRIPTDATAAMF3 {
 		var err error
-		if c.Data, err = amf.MetaDataReform(c.Data, amf.DEL); err != nil {
+		if c.Data, err = amf2.MetaDataReform(c.Data, amf2.DEL); err != nil {
 			return err
 		}
 		c.Length = uint32(len(c.Data))

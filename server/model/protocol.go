@@ -1,11 +1,13 @@
 package model
 
-import "github.com/Opafanls/hylan/server/constdef"
+import (
+	"github.com/Opafanls/hylan/server/base"
+)
 
 type Packet struct {
 	FrameIdx  uint64
 	CacheIdx  uint64
-	MediaType constdef.MediaDataType
+	MediaType base.MediaDataType
 	Timestamp uint64
 
 	Data   []byte
@@ -15,7 +17,7 @@ type Packet struct {
 func (p *Packet) IsKeyFrame() bool {
 	if p.IsVideo() {
 		vph := p.Header.(*VideoPacketHeader)
-		return vph.FrameType == constdef.I
+		return vph.FrameType == base.I
 	}
 
 	return false
@@ -26,27 +28,27 @@ type PacketMeta interface {
 }
 
 func (p *Packet) IsVideo() bool {
-	return p.MediaType == constdef.MediaDataTypeVideo
+	return p.MediaType == base.MediaDataTypeVideo
 }
 
 func (p *Packet) IsMetadata() bool {
-	return p.MediaType == constdef.MediaDataTypeMetadata
+	return p.MediaType == base.MediaDataTypeMetadata
 }
 
 func (p *Packet) IsAudio() bool {
-	return p.MediaType == constdef.MediaDataTypeAudio
+	return p.MediaType == base.MediaDataTypeAudio
 }
 
 type AudioPacketHeader struct {
 }
 
 type VideoPacketHeader struct {
-	FrameType constdef.FrameType
-	VCodec    constdef.VCodec
+	FrameType base.FrameType
+	VCodec    base.VCodec
 	Tag0      string
 }
 
-func NewVideoPktH(frameType constdef.FrameType, vcodec constdef.VCodec, tag string) *VideoPacketHeader {
+func NewVideoPktH(frameType base.FrameType, vcodec base.VCodec, tag string) *VideoPacketHeader {
 	v := &VideoPacketHeader{
 		FrameType: frameType,
 		VCodec:    vcodec,
@@ -60,7 +62,7 @@ func (v *VideoPacketHeader) Tag() string {
 }
 
 type KV struct {
-	K constdef.SessionConfigKey
+	K base.SessionKey
 	V interface{}
 }
 

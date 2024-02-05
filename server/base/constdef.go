@@ -1,3 +1,3 @@
-package constdef
+package base
 
 const StreamPad = "PAD"

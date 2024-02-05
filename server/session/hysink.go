@@ -5,6 +5,10 @@ import (
 	"github.com/Opafanls/hylan/server/base"
 )
 
+type SourceArg struct {
+	SourceSession HySessionI
+}
+
 type SinkArg struct {
 	Ctx      context.Context
 	Sink     Sink

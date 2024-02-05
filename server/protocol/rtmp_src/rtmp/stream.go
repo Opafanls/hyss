@@ -29,7 +29,7 @@ func NewRtmpStream() *RtmpStream {
 
 func (rs *RtmpStream) HandleReader(r av.ReadCloser) {
 	info := r.Info()
-	log.Debugf("HandleReader: info[%v]", info)
+	log.Infof("HandleReader: info[%v]", info)
 
 	var stream *Stream
 	i, ok := rs.streams.Load(info.Key)
@@ -53,12 +53,12 @@ func (rs *RtmpStream) HandleReader(r av.ReadCloser) {
 
 func (rs *RtmpStream) HandleWriter(w av.WriteCloser) {
 	info := w.Info()
-	log.Debugf("HandleWriter: info[%v]", info)
+	log.Infof("HandleWriter: info[%v]", info)
 
 	var s *Stream
 	item, ok := rs.streams.Load(info.Key)
 	if !ok {
-		log.Debugf("HandleWriter: not found create new info[%v]", info)
+		log.Infof("HandleWriter: not found create new info[%v]", info)
 		s = NewStream()
 		rs.streams.Store(info.Key, s)
 		s.info = info
@@ -310,7 +310,7 @@ func (s *Stream) TransStart() {
 	s.isStart = true
 	var p av.Packet
 
-	log.Debugf("TransStart: %v", s.info)
+	log.Infof("TransStart: %v", s.info)
 
 	s.StartStaticPush()
 
@@ -323,6 +323,7 @@ func (s *Stream) TransStart() {
 		if err != nil {
 			s.closeInter()
 			s.isStart = false
+			log.Errorf("Stream read err: %+v", err)
 			return
 		}
 
@@ -337,7 +338,7 @@ func (s *Stream) TransStart() {
 			if !v.init {
 				//log.Debugf("cache.send: %v", v.w.Info())
 				if err = s.cache.Send(v.w); err != nil {
-					log.Debugf("[%s] send cache packet error: %v, remove", v.w.Info(), err)
+					log.Infof("[%s] send cache packet error: %v, remove", v.w.Info(), err)
 					s.ws.Delete(key)
 					return true
 				}
@@ -347,7 +348,7 @@ func (s *Stream) TransStart() {
 				//writeType := reflect.TypeOf(v.w)
 				//log.Debugf("w.Write: type=%v, %v", writeType, v.w.Info())
 				if err = v.w.Write(&newPacket); err != nil {
-					log.Debugf("[%s] write packet error: %v, remove", v.w.Info(), err)
+					log.Infof("[%s] write packet error: %v, remove", v.w.Info(), err)
 					s.ws.Delete(key)
 				}
 			}
@@ -396,7 +397,7 @@ func (s *Stream) CheckAlive() (n int) {
 func (s *Stream) closeInter() {
 	if s.r != nil {
 		s.StopStaticPush()
-		log.Debugf("[%v] publisher closed", s.r.Info())
+		log.Infof("[%v] publisher closed", s.r.Info())
 	}
 
 	s.ws.Range(func(key, val interface{}) bool {

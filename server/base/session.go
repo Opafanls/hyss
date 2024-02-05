@@ -1,4 +1,4 @@
-package constdef
+package base
 
 type SessionType uint16
 

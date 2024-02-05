@@ -2,7 +2,6 @@ package hynet
 
 import (
 	"context"
-	"github.com/Opafanls/hylan/server/constdef"
 	"io"
 	"net"
 	"sync"
@@ -74,9 +73,9 @@ func (hyConn *DefaultConn) GetConfig(netConfig NetConfig) (interface{}, bool) {
 func (hyConn *DefaultConn) Close() error {
 	err := hyConn.conn.Close()
 	if err != nil {
-		return nil
+		return err
 	}
-	return constdef.NewHyError("active close", err)
+	return nil
 }
 
 func (hyConn *DefaultConn) Flush() error {
