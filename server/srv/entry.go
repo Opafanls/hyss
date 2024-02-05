@@ -75,6 +75,7 @@ func (hy *HylanServer) ServeConn(tag string, conn hynet.IHyConn) {
 			h = rtmp.NewHandler()
 		default:
 			log.Errorf(conn.Ctx(), "protocol not found %s", tag)
+			return
 		}
 		session.Serve(sess, h)
 	})

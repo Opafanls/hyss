@@ -6,7 +6,6 @@ import (
 )
 
 type SourceArg struct {
-	SourceSession HySessionI
 }
 
 type SinkArg struct {

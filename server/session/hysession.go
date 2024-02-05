@@ -110,17 +110,7 @@ func (hy *HySession) Close() error {
 	if err != nil {
 		log.Errorf(hy.Ctx(), "close Conn failed: %+v", err)
 	}
-	if hy.base != nil {
-		st := hy.SessionType()
-		if st.IsSink() {
-			return event.PushEvent0(hy.sessCtx, event.RemoveSinkSession, hy.base.ID())
-		} else {
-			return event.PushEvent0(hy.sessCtx, event.RemoveSourceSession, hy.base.ID())
-		}
-	} else {
-		log.Warnf(hy.sessCtx, "hy base is nil")
-	}
-	return nil
+	return event.PushEvent0(hy.sessCtx, event.OnSessionDelete, NewStreamEvent(hy.Base(), hy))
 }
 
 func (hy *HySession) GetConn() hynet.IHyConn {
@@ -227,16 +217,7 @@ func (b *BaseHandler) OnPublish(ctx context.Context, arg *SourceArg) error {
 	if sess.SessionType() != base.SessionTypeRtmpSource {
 		return nil
 	}
-	sessType := sess.SessionType()
-	var err error
-	if sessType.IsSource() {
-		err = event.PushEvent0(ctx, event.CreateSourceSession, NewStreamEvent(info, sess))
-	} else {
-		sourceID := info.ID()
-		sinkID := SinkID(sourceID)
-		info.SetParam(base.SessionInitParamKeyID, sinkID)
-		err = event.PushEvent0(ctx, event.CreateSinkSession, &model.KVStr{K: sourceID, V: sinkID})
-	}
+	var err = event.PushEvent0(ctx, event.OnSessionCreate, NewStreamEvent(info, sess))
 	if err != nil {
 		log.Errorf(ctx, "onPublish %+v failed: %+v", info, err)
 	} else {

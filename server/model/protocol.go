@@ -62,7 +62,7 @@ func (v *VideoPacketHeader) Tag() string {
 }
 
 type KV struct {
-	K base.SessionKey
+	K string
 	V interface{}
 }
 

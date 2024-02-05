@@ -97,7 +97,8 @@ func (tcpServer *TcpServer) Accept() {
 		if err != nil {
 			continue
 		}
-		tcpServer.ConnHandler.ServeConn(tcpServer.Name(), NewHyConn(context.Background(), conn))
+		hyConn := NewHyConn(context.Background(), conn)
+		tcpServer.ConnHandler.ServeConn(tcpServer.Name(), hyConn)
 	}
 }
 

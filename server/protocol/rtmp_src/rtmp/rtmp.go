@@ -193,18 +193,17 @@ func (s *Server) Publish(ctx context.Context, arg *session.SourceArg) error {
 	}
 	reader := NewVirReader(connServer)
 	s.handler.HandleReader(reader)
+	//if s.getter != nil {
+	//	writeType := reflect.TypeOf(s.getter)
+	//	log.Debugf("handleConn:writeType=%v", writeType)
+	//	writer := s.getter.GetWriter(reader.Info())
+	//	s.handler.HandleWriter(writer)
+	//}
+	//if configure.Config.GetBool("flv_archive") {
+	//	flvWriter := new(flv.FlvDvr)
+	//	s.handler.HandleWriter(flvWriter.GetWriter(reader.Info()))
+	//}
 	log.Infof("new publisher: %+v with getter: %v, flv_archive: %v", reader.Info(), s.getter, configure.Config.GetBool("flv_archive"))
-
-	if s.getter != nil {
-		writeType := reflect.TypeOf(s.getter)
-		log.Debugf("handleConn:writeType=%v", writeType)
-		writer := s.getter.GetWriter(reader.Info())
-		s.handler.HandleWriter(writer)
-	}
-	if configure.Config.GetBool("flv_archive") {
-		flvWriter := new(flv.FlvDvr)
-		s.handler.HandleWriter(flvWriter.GetWriter(reader.Info()))
-	}
 	return nil
 }
 

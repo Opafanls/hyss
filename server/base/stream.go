@@ -28,7 +28,7 @@ const (
 )
 
 type StreamBaseI interface {
-	ID() string
+	ID() int64
 	URL() *url.URL
 	GetParam(key SessionKey) (interface{}, bool)
 	SetParam(key SessionKey, value interface{})
@@ -40,7 +40,7 @@ type StreamBaseI interface {
 var _ = StreamBaseI(&StreamBase{})
 
 type StreamBase struct {
-	id          string
+	id          int64
 	vhost       string
 	app         string
 	name        string
@@ -71,13 +71,14 @@ func NewBase0(values *url.URL) *StreamBase {
 
 func newEmpty() *StreamBase {
 	streamBase := &StreamBase{}
+	streamBase.id = time.Now().UnixNano()
 	streamBase.paramMap = make(map[SessionKey]interface{})
 	streamBase.onTimestamp = time.Now().UnixNano()
 	streamBase.rw = &sync.RWMutex{}
 	return streamBase
 }
 
-func (streamBase *StreamBase) ID() string {
+func (streamBase *StreamBase) ID() int64 {
 	return streamBase.id
 }
 
@@ -96,7 +97,6 @@ func (streamBase *StreamBase) SetParam(key SessionKey, val interface{}) {
 	streamBase.rw.Lock()
 	streamBase.paramMap[key] = val
 	streamBase.rw.Unlock()
-	defer streamBase.format()
 	switch key {
 	case SessionInitParamKeyVhost:
 		streamBase.vhost = val.(string)
@@ -105,7 +105,7 @@ func (streamBase *StreamBase) SetParam(key SessionKey, val interface{}) {
 	case SessionInitParamKeyName:
 		streamBase.name = val.(string)
 	case SessionInitParamKeyID:
-		streamBase.id = val.(string)
+		streamBase.id = val.(int64)
 	default:
 		return
 	}
@@ -117,14 +117,6 @@ func (streamBase *StreamBase) Vhost() string {
 
 func (streamBase *StreamBase) App() string {
 	return streamBase.app
-}
-
-func (streamBase *StreamBase) format() {
-	if streamBase.id == "" {
-		if streamBase.vhost != "" && streamBase.app != "" && streamBase.name != "" {
-			streamBase.id = fmt.Sprintf("%s#%s#%s", streamBase.vhost, streamBase.app, streamBase.name)
-		}
-	}
 }
 
 func (streamBase *StreamBase) Name() string {

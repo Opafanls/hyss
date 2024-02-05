@@ -6,6 +6,7 @@ import (
 	"github.com/Opafanls/hylan/server/protocol/rtmp_src/rtmp/cache"
 	"github.com/Opafanls/hylan/server/protocol/rtmp_src/rtmp/rtmprelay"
 	log "github.com/sirupsen/logrus"
+	"io"
 	"strings"
 	"sync"
 	"time"
@@ -47,8 +48,8 @@ func (rs *RtmpStream) HandleReader(r av.ReadCloser) {
 		rs.streams.Store(info.Key, stream)
 		stream.info = info
 	}
-
-	stream.AddReader(r)
+	stream.sync = true
+	_ = stream.AddReader(r)
 }
 
 func (rs *RtmpStream) HandleWriter(w av.WriteCloser) {
@@ -91,6 +92,7 @@ type Stream struct {
 	r       av.ReadCloser
 	ws      *sync.Map
 	info    av.Info
+	sync    bool
 }
 
 type PackWriterCloser struct {
@@ -135,9 +137,14 @@ func (s *Stream) Copy(dst *Stream) {
 	})
 }
 
-func (s *Stream) AddReader(r av.ReadCloser) {
+func (s *Stream) AddReader(r av.ReadCloser) error {
 	s.r = r
-	go s.TransStart()
+	if s.sync {
+		return s.TransStart()
+	} else {
+		go s.TransStart()
+	}
+	return nil
 }
 
 func (s *Stream) AddWriter(w av.WriteCloser) {
@@ -306,7 +313,7 @@ func (s *Stream) SendStaticPush(packet av.Packet) {
 	}
 }
 
-func (s *Stream) TransStart() {
+func (s *Stream) TransStart() error {
 	s.isStart = true
 	var p av.Packet
 
@@ -317,14 +324,14 @@ func (s *Stream) TransStart() {
 	for {
 		if !s.isStart {
 			s.closeInter()
-			return
+			return io.EOF
 		}
 		err := s.r.Read(&p)
 		if err != nil {
 			s.closeInter()
 			s.isStart = false
 			log.Errorf("Stream read err: %+v", err)
-			return
+			return err
 		}
 
 		if s.IsSendStaticPush() {
@@ -336,7 +343,6 @@ func (s *Stream) TransStart() {
 		s.ws.Range(func(key, val interface{}) bool {
 			v := val.(*PackWriterCloser)
 			if !v.init {
-				//log.Debugf("cache.send: %v", v.w.Info())
 				if err = s.cache.Send(v.w); err != nil {
 					log.Infof("[%s] send cache packet error: %v, remove", v.w.Info(), err)
 					s.ws.Delete(key)

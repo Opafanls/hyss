@@ -11,11 +11,9 @@ import (
 type HyEvent uint32
 
 const (
-	invalid             = iota
-	CreateSourceSession //新的连接进来
-	CreateSinkSession
-	RemoveSourceSession
-	RemoveSinkSession
+	invalid = iota
+	OnSessionCreate
+	OnSessionDelete
 	invalid0
 )
 
