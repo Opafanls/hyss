@@ -93,6 +93,8 @@ type Stream struct {
 	ws      *sync.Map
 	info    av.Info
 	sync    bool
+
+	pktCh chan *av.Packet
 }
 
 type PackWriterCloser struct {
@@ -105,10 +107,15 @@ func (p *PackWriterCloser) GetWriter() av.WriteCloser {
 }
 
 func NewStream() *Stream {
-	return &Stream{
+	s := &Stream{
 		cache: cache.NewCache(),
 		ws:    &sync.Map{},
+		pktCh: make(chan *av.Packet, 128),
 	}
+	go func() {
+		s.startSink()
+	}()
+	return s
 }
 
 func (s *Stream) ID() string {
@@ -142,7 +149,9 @@ func (s *Stream) AddReader(r av.ReadCloser) error {
 	if s.sync {
 		return s.TransStart()
 	} else {
-		go s.TransStart()
+		go func() {
+			_ = s.TransStart()
+		}()
 	}
 	return nil
 }
@@ -315,13 +324,15 @@ func (s *Stream) SendStaticPush(packet av.Packet) {
 
 func (s *Stream) TransStart() error {
 	s.isStart = true
-	var p av.Packet
 
 	log.Infof("TransStart: %v", s.info)
 
 	s.StartStaticPush()
-
+	defer func() {
+		close(s.pktCh)
+	}()
 	for {
+		var p av.Packet
 		if !s.isStart {
 			s.closeInter()
 			return io.EOF
@@ -340,27 +351,44 @@ func (s *Stream) TransStart() error {
 
 		s.cache.Write(p)
 
-		s.ws.Range(func(key, val interface{}) bool {
-			v := val.(*PackWriterCloser)
-			if !v.init {
-				if err = s.cache.Send(v.w); err != nil {
-					log.Infof("[%s] send cache packet error: %v, remove", v.w.Info(), err)
-					s.ws.Delete(key)
-					return true
-				}
-				v.init = true
-			} else {
-				newPacket := p
-				//writeType := reflect.TypeOf(v.w)
-				//log.Debugf("w.Write: type=%v, %v", writeType, v.w.Info())
-				if err = v.w.Write(&newPacket); err != nil {
-					log.Infof("[%s] write packet error: %v, remove", v.w.Info(), err)
-					s.ws.Delete(key)
-				}
-			}
-			return true
-		})
+		s.pktCh <- &p
+		//s.doSink(&p)
 	}
+}
+
+func (s *Stream) startSink() {
+	for s.isStart {
+		select {
+		case pkt := <-s.pktCh:
+			if pkt == nil {
+				return
+			}
+			s.doSink(pkt)
+		}
+	}
+}
+
+func (s *Stream) doSink(p *av.Packet) {
+	s.ws.Range(func(key, val interface{}) bool {
+		v := val.(*PackWriterCloser)
+		if !v.init {
+			if err := s.cache.Send(v.w); err != nil {
+				log.Infof("[%s] send cache packet error: %v, remove", v.w.Info(), err)
+				s.ws.Delete(key)
+				return true
+			}
+			v.init = true
+		} else {
+			newPacket := p
+			//writeType := reflect.TypeOf(v.w)
+			//log.Debugf("w.Write: type=%v, %v", writeType, v.w.Info())
+			if err := v.w.Write(newPacket); err != nil {
+				log.Infof("[%s] write packet error: %v, remove", v.w.Info(), err)
+				s.ws.Delete(key)
+			}
+		}
+		return true
+	})
 }
 
 func (s *Stream) TransStop() {
