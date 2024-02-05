@@ -18,6 +18,7 @@ type HySessionI interface {
 	SessionType() base.SessionType
 	Close() error
 	SetHandler(h ProtocolHandler)
+	Handler() ProtocolHandler
 	GetConn() hynet.IHyConn
 	GetConfig(key base.SessionKey) (interface{}, bool)
 	SetConfig(key base.SessionKey, val interface{})
@@ -85,13 +86,58 @@ func (hy *HySession) Cycle() error {
 	if info == nil {
 		return fmt.Errorf("info is nil")
 	}
+	err = hy.checkValid(info)
+	if err != nil {
+		return err
+	}
 	hy.base = info
 	sessionTyp := hy.SessionType()
 	if sessionTyp.IsSource() {
-		return hy.handler.OnPublish(hy.sessCtx, &SourceArg{})
+		return hy.publish()
 	} else {
-		return hy.handler.OnSink(hy.sessCtx, &SinkArg{})
+		return hy.play()
 	}
+}
+
+func (hy *HySession) publish() error {
+	ctx := hy.Ctx()
+	info := hy.Base()
+	var err = event.PushEvent0(ctx, event.OnSessionCreate, NewStreamEvent(info, hy))
+	if err != nil {
+		return err
+	}
+	return hy.handler.OnPublish(hy.sessCtx, &SourceArg{})
+}
+
+func (hy *HySession) play() error {
+	//get source session
+	var (
+		info  = hy.Base()
+		vhost = info.Vhost()
+		name  = info.Name()
+	)
+	stream := DefaultHyStreamManager.GetStream(vhost, name)
+	if stream == nil {
+		return fmt.Errorf("stream not found")
+	}
+	return stream.Sink(&SinkArg{
+		Ctx:         hy.Ctx(),
+		Sink:        &SinkRtmp{},
+		SinkSession: hy,
+	})
+}
+
+func (hy *HySession) checkValid(info base.StreamBaseI) error {
+	var (
+		vhost   = info.Vhost()
+		appName = info.App()
+		name    = info.Name()
+		id      = info.ID()
+	)
+	if id == 0 || appName == "" || name == "" || vhost == "" {
+		return fmt.Errorf("invalid info")
+	}
+	return nil
 }
 
 func (hy *HySession) Close() error {
@@ -119,6 +165,10 @@ func (hy *HySession) GetConn() hynet.IHyConn {
 
 func (hy *HySession) SetHandler(h ProtocolHandler) {
 	hy.handler = h
+}
+
+func (hy *HySession) Handler() ProtocolHandler {
+	return hy.handler
 }
 
 func (hy *HySession) Base() base.StreamBaseI {
@@ -212,18 +262,7 @@ func (b *BaseHandler) OnSink(ctx context.Context, arg *SinkArg) error {
 }
 
 func (b *BaseHandler) OnPublish(ctx context.Context, arg *SourceArg) error {
-	sess := b.Sess
-	info := sess.Base()
-	if sess.SessionType() != base.SessionTypeRtmpSource {
-		return nil
-	}
-	var err = event.PushEvent0(ctx, event.OnSessionCreate, NewStreamEvent(info, sess))
-	if err != nil {
-		log.Errorf(ctx, "onPublish %+v failed: %+v", info, err)
-	} else {
-		log.Infof(ctx, "onPublish success %+v", info)
-	}
-	return err
+	return nil
 }
 
 func NewStreamEvent(info base.StreamBaseI, sess HySessionI) map[base.SessionKey]interface{} {

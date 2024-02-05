@@ -64,8 +64,8 @@ func NewBase(uri string) (StreamBaseI, error) {
 
 func NewBase0(values *url.URL) *StreamBase {
 	streamBase := newEmpty()
-	//streamBase.id = id(values)
 	streamBase.url = values
+	streamBase.vhost = values.Host
 	return streamBase
 }
 

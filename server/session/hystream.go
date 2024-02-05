@@ -1,35 +1,34 @@
-package stream
+package session
 
 import (
 	"encoding/json"
 	"github.com/Opafanls/hylan/server/base"
-	"github.com/Opafanls/hylan/server/session"
 	"sync"
 )
 
 type HyStreamI interface {
 	Base() base.StreamBaseI
-	Source() session.HySessionI
-	Sink(arg *session.SinkArg) error
+	Source() HySessionI
+	Sink(arg *SinkArg) error
 	RmSink(string) error
-	AddSink(session.HySessionI)
+	AddSink(HySessionI)
 }
 
 // HyStream biz stream
 type HyStream struct {
-	sourceSession session.HySessionI
-	sinkSessions  map[int64]session.HySessionI
+	sourceSession HySessionI
+	sinkSessions  map[int64]HySessionI
 	l             sync.Mutex
 }
 
-func NewHyStream0(sourceSession session.HySessionI) *HyStream {
+func NewHyStream0(sourceSession HySessionI) *HyStream {
 	return NewHyStream(sourceSession)
 }
 
-func NewHyStream(sourceSession session.HySessionI) *HyStream {
+func NewHyStream(sourceSession HySessionI) *HyStream {
 	hyStream := &HyStream{}
 	hyStream.sourceSession = sourceSession
-	hyStream.sinkSessions = make(map[int64]session.HySessionI)
+	hyStream.sinkSessions = make(map[int64]HySessionI)
 	return hyStream
 }
 
@@ -37,17 +36,22 @@ func (stream *HyStream) Base() base.StreamBaseI {
 	return stream.sourceSession.Base()
 }
 
-func (stream *HyStream) Source() session.HySessionI {
+func (stream *HyStream) Source() HySessionI {
 	return stream.sourceSession
 }
 
-func (stream *HyStream) AddSink(s session.HySessionI) {
+func (stream *HyStream) AddSink(s HySessionI) {
 	stream.l.Lock()
 	stream.sinkSessions[s.Base().ID()] = s
 	stream.l.Unlock()
 }
 
-func (stream *HyStream) Sink(arg *session.SinkArg) error {
+func (stream *HyStream) Sink(arg *SinkArg) error {
+	stream.AddSink(arg.SinkSession)
+	err := stream.Source().Handler().OnSink(arg.Ctx, arg)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 

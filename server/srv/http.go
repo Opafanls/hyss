@@ -3,7 +3,7 @@ package srv
 import (
 	"fmt"
 	"github.com/Opafanls/hylan/server/core/hynet"
-	"github.com/Opafanls/hylan/server/stream"
+	"github.com/Opafanls/hylan/server/session"
 	"github.com/gin-gonic/gin"
 	"net/http"
 )
@@ -56,8 +56,8 @@ func (h *HttpServer) v1(v1 *gin.RouterGroup) {
 }
 
 func (h *HttpServer) listStreams(c *gin.Context) {
-	var r map[string]stream.HyStreamI
-	err := stream.DefaultHyStreamManager.StreamFilter(func(m map[string]stream.HyStreamI) {
+	var r map[string]map[string]session.HyStreamI
+	err := session.DefaultHyStreamManager.StreamFilter(func(m map[string]map[string]session.HyStreamI) {
 		r = m
 	})
 	if err != nil {

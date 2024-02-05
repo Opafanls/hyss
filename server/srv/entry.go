@@ -7,7 +7,6 @@ import (
 	"github.com/Opafanls/hylan/server/log"
 	"github.com/Opafanls/hylan/server/protocol/rtmp_src/rtmp"
 	"github.com/Opafanls/hylan/server/session"
-	"github.com/Opafanls/hylan/server/stream"
 	"github.com/Opafanls/hylan/server/task"
 )
 
@@ -30,7 +29,7 @@ func (hy *HylanServer) Start() {
 }
 
 func (hy *HylanServer) initBase() {
-	stream.InitHyStreamManager()
+	session.InitHyStreamManager()
 }
 
 func (hy *HylanServer) initServer() {
@@ -43,10 +42,10 @@ func (hy *HylanServer) listeners() {
 			Ip:   "",
 			Port: 1935,
 		}),
-		//NewHttpServer(&hynet.HttpServeConfig{
-		//	Ip:   "",
-		//	Port: 8080,
-		//}),
+		NewHttpServer(&hynet.HttpServeConfig{
+			Ip:   "",
+			Port: 8080,
+		}),
 	}
 
 	for _, listener := range listeners {

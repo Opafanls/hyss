@@ -1,4 +1,4 @@
-package stream
+package session
 
 import (
 	"context"
@@ -7,7 +7,6 @@ import (
 	"github.com/Opafanls/hylan/server/core/event"
 	"github.com/Opafanls/hylan/server/log"
 	"github.com/Opafanls/hylan/server/model"
-	"github.com/Opafanls/hylan/server/session"
 	"github.com/Opafanls/hylan/server/util"
 	"sync"
 )
@@ -25,7 +24,7 @@ type HyStreamManagerI interface {
 type HyStreamManager struct {
 	rwLock     *sync.RWMutex
 	streamMap  map[string]map[string]HyStreamI //vhost -> stream_name
-	sessionMap map[int64]session.HySessionI
+	sessionMap map[int64]HySessionI
 }
 
 type EventHandler struct {
@@ -43,11 +42,11 @@ func NewHyStreamManager() *HyStreamManager {
 	hyStreamManager := &HyStreamManager{}
 	hyStreamManager.rwLock = &sync.RWMutex{}
 	hyStreamManager.streamMap = make(map[string]map[string]HyStreamI)
-	hyStreamManager.sessionMap = make(map[int64]session.HySessionI)
+	hyStreamManager.sessionMap = make(map[int64]HySessionI)
 	return hyStreamManager
 }
 
-func (streamManager *HyStreamManager) CreateStream(hySession session.HySessionI) bool {
+func (streamManager *HyStreamManager) CreateStream(hySession HySessionI) bool {
 	if hySession.SessionType().IsSource() {
 		return streamManager.addSourceSession(hySession)
 	} else {
@@ -55,7 +54,7 @@ func (streamManager *HyStreamManager) CreateStream(hySession session.HySessionI)
 	}
 }
 
-func (streamManager *HyStreamManager) addSinkSession(hySession session.HySessionI) bool {
+func (streamManager *HyStreamManager) addSinkSession(hySession HySessionI) bool {
 	baseInfo := hySession.Base()
 	vhost := baseInfo.Vhost()
 	streamName := baseInfo.Name()
@@ -68,7 +67,7 @@ func (streamManager *HyStreamManager) addSinkSession(hySession session.HySession
 	return true
 }
 
-func (streamManager *HyStreamManager) addSourceSession(sess session.HySessionI) bool {
+func (streamManager *HyStreamManager) addSourceSession(sess HySessionI) bool {
 	hyStream := NewHyStream(sess)
 	vhost := hyStream.Base().Vhost()
 	streamName := hyStream.Base().Name()
@@ -83,8 +82,8 @@ func (streamManager *HyStreamManager) addSourceSession(sess session.HySessionI) 
 		if exist {
 			return exist
 		}
-		vhostMap[streamName] = hyStream
 	}
+	vhostMap[streamName] = hyStream
 	streamManager.sessionMap[srcSession.Base().ID()] = srcSession
 	streamManager.rwLock.Unlock()
 	return false
@@ -112,13 +111,13 @@ func (streamManager *HyStreamManager) DeleteStream(id int64) {
 }
 
 // StreamFilter for biz
-func (streamManager *HyStreamManager) StreamFilter(filter func(map[string]HyStreamI)) error {
+func (streamManager *HyStreamManager) StreamFilter(filter func(map[string]map[string]HyStreamI)) error {
 	if filter == nil {
 		//ret all streams
 		return fmt.Errorf("filter is nil")
 	}
 	streamM := util.Copy(streamManager.streamMap)
-	filter(streamM.(map[string]HyStreamI))
+	filter(streamM.(map[string]map[string]HyStreamI))
 	return nil
 }
 
@@ -156,13 +155,14 @@ func (s *EventHandler) Handle(e event.HyEvent, data *model.EventWrap) {
 	switch e {
 	case event.OnSessionCreate:
 		m := data.Data.(map[base.SessionKey]interface{})
-		sess := m[base.ConfigKeyStreamSess].(session.HySessionI)
-		log.Infof(sess.Ctx(), "DefaultHyStreamManager.CreateStream with %v", DefaultHyStreamManager.CreateStream(sess))
+		sess := m[base.ConfigKeyStreamSess].(HySessionI)
+		streamRes := DefaultHyStreamManager.CreateStream(sess)
+		log.Infof(sess.Ctx(), "DefaultHyStreamManager.CreateStream with %v", streamRes)
 	case event.OnSessionDelete:
 		m := data.Data.(map[base.SessionKey]interface{})
-		sess := m[base.ConfigKeyStreamSess].(session.HySessionI)
+		sess := m[base.ConfigKeyStreamSess].(HySessionI)
 		DefaultHyStreamManager.DeleteStream(sess.Base().ID())
-		log.Infof(sess.Ctx(), "DefaultHyStreamManager.DeleteStream with %v")
+		log.Infof(sess.Ctx(), "DefaultHyStreamManager.DeleteStream with %v", sess.Base())
 	default:
 		log.Errorf(context.Background(), "event not handle %d %v", e, data)
 	}
