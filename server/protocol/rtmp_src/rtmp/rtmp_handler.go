@@ -3,21 +3,28 @@ package rtmp
 import (
 	"context"
 	"github.com/Opafanls/hylan/server/base"
+	"github.com/Opafanls/hylan/server/core/av"
 	"github.com/Opafanls/hylan/server/log"
 	"github.com/Opafanls/hylan/server/protocol/rtmp_src/rtmp/core"
 	"github.com/Opafanls/hylan/server/session"
+	"io"
 )
 
 type RtmpHandler struct {
-	s      *Server
-	svConn *core.ConnServer
+	s             *Server
+	svConn        *core.ConnServer
+	handleSession session.HySessionI
+	isStart       bool
+	r             *VirReader
+	w             *VirWriter
 }
 
 var server = NewRtmpServer(NewRtmpStream(), nil)
 
-func NewHandler() session.ProtocolHandler {
+func NewHandler(session session.HySessionI) session.ProtocolHandler {
 	return &RtmpHandler{
-		s: server,
+		s:             server,
+		handleSession: session,
 	}
 }
 
@@ -59,13 +66,54 @@ func (h *RtmpHandler) sessionType() base.SessionType {
 }
 
 func (h *RtmpHandler) OnPublish(ctx context.Context, sourceArg *session.SourceArg) error {
-	return h.s.Publish(ctx, &session.SourceArg{})
+	h.r = NewVirReader(h.svConn)
+	return h.HandleReader()
 }
 
-func (h *RtmpHandler) OnSink(ctx context.Context, sinkArg *session.SinkArg) error {
-	return h.s.OnSink(ctx, sinkArg)
+func (h *RtmpHandler) OnSink(sinkArg *session.SinkArg) error {
+	h.w = NewVirWriter(h.svConn)
+	return nil
+}
+
+// Read 读取packet
+func (h *RtmpHandler) Read(packet *av.Packet) error {
+	return h.handleSession.Write(packet) //source压入packet
+}
+
+func (h *RtmpHandler) Write(packet *av.Packet) error { //写成packet
+	return h.w.Write(packet)
 }
 
 func (h *RtmpHandler) OnStop() error {
 	return nil
+}
+
+func (h *RtmpHandler) HandleReader() error {
+	h.isStart = true
+	r := h.r
+	for {
+		var p = &av.Packet{}
+		if !h.isStart {
+			h.closeInter()
+			return io.EOF
+		}
+		err := r.Read(p)
+		if err != nil {
+			h.closeInter()
+			h.isStart = false
+			return err
+		}
+
+		if err := h.handleSession.Write(p); err != nil {
+			return err
+		}
+	}
+}
+
+func (h *RtmpHandler) HandleWrite() {
+
+}
+
+func (h *RtmpHandler) closeInter() {
+
 }

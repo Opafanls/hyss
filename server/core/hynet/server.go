@@ -97,7 +97,8 @@ func (tcpServer *TcpServer) Accept() {
 		if err != nil {
 			continue
 		}
-		hyConn := NewHyConn(context.Background(), conn)
+		sessionCtx := log.GetCtxWithLogID(context.Background(), "RTMP")
+		hyConn := NewHyConn(sessionCtx, conn)
 		tcpServer.ConnHandler.ServeConn(tcpServer.Name(), hyConn)
 	}
 }

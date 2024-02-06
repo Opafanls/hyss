@@ -8,9 +8,10 @@ type SourceArg struct {
 }
 
 type SinkArg struct {
-	Ctx         context.Context
-	Sink        Sink
-	SinkSession HySessionI
+	Ctx           context.Context
+	Sink          Sink
+	SinkSession   HySessionI
+	SourceSession HySessionI
 }
 
 type Sink interface {

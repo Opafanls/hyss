@@ -14,7 +14,10 @@ var EMPTY_TAGS []string
 
 func init() {
 	MainLog = &Logrus{}
-	MainLog.Init(nil)
+	err := MainLog.Init(nil)
+	if err != nil {
+		panic(err)
+	}
 }
 
 type ILog interface {

@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/Opafanls/hylan/server/base"
+	"github.com/Opafanls/hylan/server/core/av"
+	"github.com/Opafanls/hylan/server/core/cache"
 	"github.com/Opafanls/hylan/server/core/event"
 	"github.com/Opafanls/hylan/server/core/hynet"
 	"github.com/Opafanls/hylan/server/log"
 	"github.com/Opafanls/hylan/server/model"
+	"github.com/Opafanls/hylan/server/protocol"
 	"sync"
 )
 
@@ -17,18 +20,15 @@ type HySessionI interface {
 	Cycle() error
 	SessionType() base.SessionType
 	Close() error
-	SetHandler(h ProtocolHandler)
+	SetHandler(h ProtocolHandler) //不同的媒体协议
 	Handler() ProtocolHandler
 	GetConn() hynet.IHyConn
 	GetConfig(key base.SessionKey) (interface{}, bool)
 	SetConfig(key base.SessionKey, val interface{})
 	Base() base.StreamBaseI
-	// Push 把packet压入cache
-	Push(ctx context.Context, pkt *model.Packet) error
-	// Pull 从cache中取出packet
-	Pull(ctx context.Context) (*model.Packet, bool, error)
-	// Sink 增加一路sink
-	Sink(arg *SinkArg) error
+	Sink(*SinkArg) error
+	av.PacketWriter
+	av.PacketReader
 	Stat() *HySessionStat
 }
 
@@ -39,13 +39,15 @@ type HySessionStatI interface {
 }
 
 type HySession struct {
-	sessCtx context.Context
-	handler ProtocolHandler
-	base    base.StreamBaseI
-	hynet.IHyConn
-	cache         *HyDataCache
+	sessCtx       context.Context
+	handler       ProtocolHandler
+	base          base.StreamBaseI
+	conn          hynet.IHyConn
 	hySessionStat *HySessionStat
 	l             sync.Mutex
+	pktSaver      *protocol.PacketReceiver
+	pktCache      *cache.Cache
+	src           HyStreamI
 }
 
 func NewHySession(ctx context.Context, conn hynet.IHyConn, baseStreamInfo base.StreamBaseI, kvs ...*model.KV) HySessionI {
@@ -54,11 +56,9 @@ func NewHySession(ctx context.Context, conn hynet.IHyConn, baseStreamInfo base.S
 		base:          baseStreamInfo,
 		hySessionStat: &HySessionStat{running: true},
 	}
-	hySession.IHyConn = conn
-	hySession.cache = NewHyDataCache([]uint64{
-		base.DefaultCacheSize,
-		16,
-	})
+	hySession.conn = conn
+	hySession.pktSaver = protocol.NewPacketReceiver(hySession.handleMedia)
+	hySession.pktCache = cache.NewCache()
 	return hySession
 }
 
@@ -93,38 +93,71 @@ func (hy *HySession) Cycle() error {
 	hy.base = info
 	sessionTyp := hy.SessionType()
 	if sessionTyp.IsSource() {
-		return hy.publish()
+		return DefaultHyStreamManager.Publish(hy)
 	} else {
-		return hy.play()
+		return DefaultHyStreamManager.Sink(hy)
 	}
 }
 
-func (hy *HySession) publish() error {
-	ctx := hy.Ctx()
-	info := hy.Base()
-	var err = event.PushEvent0(ctx, event.OnSessionCreate, NewStreamEvent(info, hy))
-	if err != nil {
+func (hy *HySession) handleMedia(pkt *av.Packet) {
+	if hy.SessionType().IsSource() {
+		//is source
+		pktCache := hy.pktCache
+		pktCache.Write(pkt)
+		source := hy.src
+		if source != nil {
+			source.RangeSinks(func(id int64, session HySessionI) {
+				stat := session.Stat()
+				if !stat.Init {
+					if err := pktCache.Send(session); err != nil {
+						source.RmSink(id)
+					}
+					stat.Init = true
+				} else {
+					newPacket := pkt
+					if err := session.Write(newPacket); err != nil {
+						source.RmSink(id)
+					}
+				}
+			})
+		}
+	} else {
+		//is sink
+		err := hy.handler.Write(pkt)
+		if err != nil {
+			log.Infof(hy.Ctx(), "handler write packet err: %+v", err)
+		}
+	}
+}
+
+func (hy *HySession) Sink(arg *SinkArg) error {
+	if err := hy.Handler().OnSink(arg); err != nil {
 		return err
 	}
-	return hy.handler.OnPublish(hy.sessCtx, &SourceArg{})
+	for {
+		pkt := &av.Packet{}
+		err := hy.Read(pkt)
+		if err != nil {
+			return err
+		}
+		if err = hy.Handler().Write(pkt); err != nil {
+			return err
+		}
+	}
 }
 
-func (hy *HySession) play() error {
-	//get source session
-	var (
-		info  = hy.Base()
-		vhost = info.Vhost()
-		name  = info.Name()
-	)
-	stream := DefaultHyStreamManager.GetStream(vhost, name)
-	if stream == nil {
-		return fmt.Errorf("stream not found")
+func (hy *HySession) Write(pkt *av.Packet) error {
+	hy.pktSaver.Push(pkt)
+	return nil
+}
+
+func (hy *HySession) Read(pull *av.Packet) error {
+	pulled := hy.pktSaver.Pull()
+	if pulled == nil {
+		return fmt.Errorf("invalid packet")
 	}
-	return stream.Sink(&SinkArg{
-		Ctx:         hy.Ctx(),
-		Sink:        &SinkRtmp{},
-		SinkSession: hy,
-	})
+	pulled.CopyTo(pull)
+	return nil
 }
 
 func (hy *HySession) checkValid(info base.StreamBaseI) error {
@@ -156,11 +189,12 @@ func (hy *HySession) Close() error {
 	if err != nil {
 		log.Errorf(hy.Ctx(), "close Conn failed: %+v", err)
 	}
+	hy.pktSaver.Stop()
 	return event.PushEvent0(hy.sessCtx, event.OnSessionDelete, NewStreamEvent(hy.Base(), hy))
 }
 
 func (hy *HySession) GetConn() hynet.IHyConn {
-	return hy.IHyConn
+	return hy.conn
 }
 
 func (hy *HySession) SetHandler(h ProtocolHandler) {
@@ -187,20 +221,11 @@ func (hy *HySession) SetConfig(key base.SessionKey, val interface{}) {
 		hy.hySessionStat.videoCodec = val.(base.VCodec)
 	case base.ConfigKeyAudioCodec:
 		hy.hySessionStat.audioCodec = val.(base.ACodec)
+	case base.StreamInitSetSourceStream:
+		hy.src = val.(HyStreamI)
+	default:
 		hy.base.SetParam(key, val)
 	}
-}
-
-func (hy *HySession) Sink(arg *SinkArg) error {
-	return nil
-}
-
-func (hy *HySession) Push(ctx context.Context, pkt *model.Packet) error {
-	return nil
-}
-
-func (hy *HySession) Pull(ctx context.Context) (*model.Packet, bool, error) {
-	return nil, true, nil
 }
 
 func (hy *HySession) SessionType() base.SessionType {
@@ -220,49 +245,22 @@ func (hy *HySession) Stat() *HySessionStat {
 	return hy.hySessionStat
 }
 
-type BaseHandler struct {
-	Ctx  context.Context
-	Conn hynet.IHyConn
-	Sess HySessionI
-	Base base.StreamBaseI
-}
-
 type ProtocolHandler interface {
+	ProtocolSourceHandler
+	ProtocolSinkHandler
 	OnStart(ctx context.Context, sess HySessionI) (base.StreamBaseI, error) //开始协议通信，握手之类的初始化工作
-	OnPublish(ctx context.Context, sourceArg *SourceArg) error              //开始推流
-	OnSink(ctx context.Context, sinkArg *SinkArg) error                     //开始拉流
 	OnStop() error                                                          //关闭通信
 }
 
-type PlayHandler interface {
-	OnPlay()
+type ProtocolSourceHandler interface {
+	OnPublish(ctx context.Context, sourceArg *SourceArg) error //开始推流
+	av.PacketReader
 }
 
-func (b *BaseHandler) OnStart(ctx context.Context, sess HySessionI) (base.StreamBaseI, error) {
-	return nil, nil
-}
-
-func (b *BaseHandler) OnMedia(ctx context.Context, w *model.Packet) error {
-	source := b.Sess
-	mediaData := make([]byte, 0, len(w.Data))
-	copy(mediaData, w.Data)
-	err := source.Push(ctx, w)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func (b *BaseHandler) OnStop() error {
-	return nil
-}
-
-func (b *BaseHandler) OnSink(ctx context.Context, arg *SinkArg) error {
-	return nil
-}
-
-func (b *BaseHandler) OnPublish(ctx context.Context, arg *SourceArg) error {
-	return nil
+type ProtocolSinkHandler interface {
+	// OnSink sink
+	OnSink(sinkArg *SinkArg) error
+	av.PacketWriter
 }
 
 func NewStreamEvent(info base.StreamBaseI, sess HySessionI) map[base.SessionKey]interface{} {
@@ -273,6 +271,7 @@ func NewStreamEvent(info base.StreamBaseI, sess HySessionI) map[base.SessionKey]
 }
 
 type HySessionStat struct {
+	Init        bool
 	videoPktNum int
 	audioPktNum int
 	videoCodec  base.VCodec

@@ -2,8 +2,8 @@ package flv
 
 import (
 	"fmt"
+	av2 "github.com/Opafanls/hylan/server/core/av"
 	"github.com/Opafanls/hylan/server/protocol/container/amf"
-	"github.com/Opafanls/hylan/server/protocol/rtmp_src/av"
 	"github.com/Opafanls/hylan/server/protocol/rtmp_src/configure"
 	"github.com/Opafanls/hylan/server/protocol/rtmp_src/uid"
 	"github.com/Opafanls/hylan/server/util/pio"
@@ -50,7 +50,7 @@ const (
 
 type FLVWriter struct {
 	Uid string
-	av.RWBaser
+	av2.RWBaser
 	app, title, url string
 	buf             []byte
 	closed          chan struct{}
@@ -65,7 +65,7 @@ func NewFLVWriter(app, title, url string, ctx *os.File) *FLVWriter {
 		title:   title,
 		url:     url,
 		ctx:     ctx,
-		RWBaser: av.NewRWBaser(time.Second * 10),
+		RWBaser: av2.NewRWBaser(time.Second * 10),
 		closed:  make(chan struct{}),
 		buf:     make([]byte, headerLen),
 	}
@@ -77,20 +77,20 @@ func NewFLVWriter(app, title, url string, ctx *os.File) *FLVWriter {
 	return ret
 }
 
-func (writer *FLVWriter) Write(p *av.Packet) error {
+func (writer *FLVWriter) Write(p *av2.Packet) error {
 	writer.RWBaser.SetPreTime()
 	h := writer.buf[:headerLen]
-	typeID := av.TAG_VIDEO
+	typeID := av2.TAG_VIDEO
 	if !p.IsVideo {
 		if p.IsMetadata {
 			var err error
-			typeID = av.TAG_SCRIPTDATAAMF0
+			typeID = av2.TAG_SCRIPTDATAAMF0
 			p.Data, err = amf.MetaDataReform(p.Data, amf.DEL)
 			if err != nil {
 				return err
 			}
 		} else {
-			typeID = av.TAG_AUDIO
+			typeID = av2.TAG_AUDIO
 		}
 	}
 	dataLen := len(p.Data)
@@ -139,7 +139,7 @@ func (writer *FLVWriter) Close(error) {
 	close(writer.closed)
 }
 
-func (writer *FLVWriter) Info() (ret av.Info) {
+func (writer *FLVWriter) Info() (ret av2.Info) {
 	ret.UID = writer.Uid
 	ret.URL = writer.url
 	ret.Key = writer.app + "/" + writer.title
@@ -148,7 +148,7 @@ func (writer *FLVWriter) Info() (ret av.Info) {
 
 type FlvDvr struct{}
 
-func (f *FlvDvr) GetWriter(info av.Info) av.WriteCloser {
+func (f *FlvDvr) GetWriter(info av2.Info) av2.WriteCloser {
 	paths := strings.SplitN(info.Key, "/", 2)
 	if len(paths) != 2 {
 		log.Warning("invalid info")

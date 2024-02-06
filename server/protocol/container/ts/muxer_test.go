@@ -1,7 +1,7 @@
 package ts
 
 import (
-	"github.com/Opafanls/hylan/server/protocol/rtmp_src/av"
+	"github.com/Opafanls/hylan/server/core/av"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,7 +12,7 @@ type TestWriter struct {
 	count int
 }
 
-//Write write p to w.buf
+// Write write p to w.buf
 func (w *TestWriter) Write(p []byte) (int, error) {
 	w.count++
 	w.buf = p
