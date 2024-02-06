@@ -2,7 +2,7 @@ package cache
 
 import (
 	"fmt"
-	"github.com/Opafanls/hylan/server/protocol/rtmp_src/av"
+	"github.com/Opafanls/hylan/server/core/av"
 )
 
 var (
@@ -37,7 +37,7 @@ func (array *array) write(packet *av.Packet) error {
 	return nil
 }
 
-func (array *array) send(w av.WriteCloser) error {
+func (array *array) send(w av.PacketWriter) error {
 	var err error
 	for i := 0; i < array.index; i++ {
 		packet := array.packets[i]
@@ -97,7 +97,7 @@ func (gopCache *GopCache) Write(p *av.Packet) {
 	}
 }
 
-func (gopCache *GopCache) sendTo(w av.WriteCloser) error {
+func (gopCache *GopCache) sendTo(w av.PacketWriter) error {
 	var err error
 	pos := (gopCache.nextindex + 1) % gopCache.count
 	for i := 0; i < gopCache.num; i++ {
@@ -114,6 +114,6 @@ func (gopCache *GopCache) sendTo(w av.WriteCloser) error {
 	return nil
 }
 
-func (gopCache *GopCache) Send(w av.WriteCloser) error {
+func (gopCache *GopCache) Send(w av.PacketWriter) error {
 	return gopCache.sendTo(w)
 }

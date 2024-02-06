@@ -2,9 +2,8 @@ package cache
 
 import (
 	"bytes"
+	"github.com/Opafanls/hylan/server/core/av"
 	"github.com/Opafanls/hylan/server/protocol/container/amf"
-	"github.com/Opafanls/hylan/server/protocol/rtmp_src/av"
-
 	log "github.com/sirupsen/logrus"
 )
 
@@ -38,7 +37,7 @@ func (specialCache *SpecialCache) Write(p *av.Packet) {
 	specialCache.full = true
 }
 
-func (specialCache *SpecialCache) Send(w av.WriteCloser) error {
+func (specialCache *SpecialCache) Send(w av.PacketWriter) error {
 	if !specialCache.full {
 		return nil
 	}

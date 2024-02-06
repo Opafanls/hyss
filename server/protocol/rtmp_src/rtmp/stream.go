@@ -2,8 +2,8 @@ package rtmp
 
 import (
 	"fmt"
-	"github.com/Opafanls/hylan/server/protocol/rtmp_src/av"
-	"github.com/Opafanls/hylan/server/protocol/rtmp_src/rtmp/cache"
+	"github.com/Opafanls/hylan/server/core/av"
+	"github.com/Opafanls/hylan/server/core/cache"
 	"github.com/Opafanls/hylan/server/protocol/rtmp_src/rtmp/rtmprelay"
 	log "github.com/sirupsen/logrus"
 	"io"
@@ -276,7 +276,7 @@ func (s *Stream) IsSendStaticPush() bool {
 	return false
 }
 
-func (s *Stream) SendStaticPush(packet av.Packet) {
+func (s *Stream) SendStaticPush(packet *av.Packet) {
 	key := s.info.Key
 
 	dscr := strings.Split(key, "/")
@@ -305,7 +305,7 @@ func (s *Stream) SendStaticPush(packet av.Packet) {
 
 		staticpushObj, err := rtmprelay.GetStaticPushObject(pushurl)
 		if (staticpushObj != nil) && (err == nil) {
-			staticpushObj.WriteAvPacket(&packet)
+			staticpushObj.WriteAvPacket(packet)
 			//log.Debugf("SendStaticPush: WriteAvPacket %s ", pushurl)
 		} else {
 			log.Debugf("SendStaticPush GetStaticPushObject %s error", pushurl)
@@ -315,18 +315,18 @@ func (s *Stream) SendStaticPush(packet av.Packet) {
 
 func (s *Stream) TransStart() error {
 	s.isStart = true
-	var p av.Packet
 
 	log.Infof("TransStart: %v", s.info)
 
 	s.StartStaticPush()
 
 	for {
+		var p = &av.Packet{}
 		if !s.isStart {
 			s.closeInter()
 			return io.EOF
 		}
-		err := s.r.Read(&p)
+		err := s.r.Read(p)
 		if err != nil {
 			s.closeInter()
 			s.isStart = false
@@ -353,7 +353,7 @@ func (s *Stream) TransStart() error {
 				newPacket := p
 				//writeType := reflect.TypeOf(v.w)
 				//log.Debugf("w.Write: type=%v, %v", writeType, v.w.Info())
-				if err = v.w.Write(&newPacket); err != nil {
+				if err = v.w.Write(newPacket); err != nil {
 					log.Infof("[%s] write packet error: %v, remove", v.w.Info(), err)
 					s.ws.Delete(key)
 				}

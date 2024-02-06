@@ -13,11 +13,13 @@ type SessionKey string
 
 // {usage}{key_name}
 const (
-	SessionInitParamKeyVhost      SessionKey = "StreamBaseVhost"
-	SessionInitParamKeyApp        SessionKey = "StreamBaseApp"
-	SessionInitParamKeyStreamType SessionKey = "StreamBaseStreamType"
-	SessionInitParamKeyName       SessionKey = "StreamBaseName"
-	SessionInitParamKeyID         SessionKey = "StreamBaseID"
+	SessionInitParamKeyVhost      SessionKey = "SessionBaseVhost"
+	SessionInitParamKeyApp        SessionKey = "SessionBaseApp"
+	SessionInitParamKeyStreamType SessionKey = "SessionBaseStreamType"
+	SessionInitParamKeyName       SessionKey = "SessionBaseName"
+	SessionInitParamKeyID         SessionKey = "SessionBaseID"
+
+	StreamInitSetSourceStream SessionKey = "StreamSourceSession"
 
 	ConfigKeyStreamBase SessionKey = "ConfigKeyStreamBase"
 	ConfigKeyStreamSess SessionKey = "ConfigKeyStreamSess"

@@ -69,6 +69,16 @@ type Packet struct {
 	Data       []byte
 }
 
+func (p *Packet) CopyTo(newPkt *Packet) {
+	newPkt.StreamID = p.StreamID
+	newPkt.IsMetadata = p.IsMetadata
+	newPkt.TimeStamp = p.TimeStamp
+	newPkt.Data = p.Data
+	newPkt.IsVideo = p.IsVideo
+	newPkt.IsAudio = p.IsAudio
+	newPkt.Header = p.Header
+}
+
 type PacketHeader interface {
 }
 
@@ -144,6 +154,10 @@ func (info Info) String() string {
 type ReadCloser interface {
 	Closer
 	Alive
+	PacketReader
+}
+
+type PacketReader interface {
 	Read(*Packet) error
 }
 
@@ -151,5 +165,9 @@ type WriteCloser interface {
 	Closer
 	Alive
 	CalcTime
+	PacketWriter
+}
+
+type PacketWriter interface {
 	Write(*Packet) error
 }
