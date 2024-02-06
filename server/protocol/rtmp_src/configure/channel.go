@@ -1,8 +1,7 @@
 package configure
 
 import (
-	"github.com/gwuhaolin/livego/utils/uid"
-
+	"github.com/Opafanls/hylan/server/protocol/rtmp_src/uid"
 	"github.com/go-redis/redis/v7"
 	"github.com/patrickmn/go-cache"
 	log "github.com/sirupsen/logrus"

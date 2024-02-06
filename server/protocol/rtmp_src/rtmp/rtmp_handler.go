@@ -19,7 +19,7 @@ type RtmpHandler struct {
 	w             *VirWriter
 }
 
-var server = NewRtmpServer(NewRtmpStream(), nil)
+var server = NewRtmpServer()
 
 func NewHandler(session session.HySessionI) session.ProtocolHandler {
 	return &RtmpHandler{
@@ -65,7 +65,7 @@ func (h *RtmpHandler) sessionType() base.SessionType {
 	return base.SessionTypeRtmpSink
 }
 
-func (h *RtmpHandler) OnPublish(ctx context.Context, sourceArg *session.SourceArg) error {
+func (h *RtmpHandler) OnPublish(sourceArg *session.SourceArg) error {
 	h.r = NewVirReader(h.svConn)
 	return h.HandleReader()
 }

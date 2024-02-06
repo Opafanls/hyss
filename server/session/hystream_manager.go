@@ -8,7 +8,6 @@ import (
 	"github.com/Opafanls/hylan/server/core/event"
 	"github.com/Opafanls/hylan/server/log"
 	"github.com/Opafanls/hylan/server/model"
-	"github.com/Opafanls/hylan/server/util"
 	"sync"
 )
 
@@ -22,18 +21,30 @@ type HyStreamManagerI interface {
 	//GetStreamByID(id string) HyStreamI
 }
 
-type HyStreamManager struct {
-	rwLock     *sync.RWMutex
-	streamMap  map[string]map[string]HyStreamI //vhost -> stream_name
-	sessionMap map[int64]HySessionI
+type StreamMap map[string]map[string]HyStreamI
+type SessionMap map[int64]HySessionI
+
+func (sm StreamMap) Clone() interface{} {
+	clone := make(StreamMap)
+	for vhost, streamM := range sm {
+		vm := make(map[string]HyStreamI)
+		for streamName, stream := range streamM {
+			vm[streamName] = stream
+		}
+		clone[vhost] = vm
+	}
+	return clone
 }
 
-type EventHandler struct {
+type HyStreamManager struct {
+	rwLock     *sync.RWMutex
+	streamMap  StreamMap //vhost -> stream_name
+	sessionMap SessionMap
 }
 
 func InitHyStreamManager() {
 	DefaultHyStreamManager = NewHyStreamManager()
-	err := event.RegisterEventHandler(&EventHandler{})
+	err := event.RegisterEventHandler(DefaultHyStreamManager)
 	if err != nil {
 		log.Fatalf(context.Background(), "register event handler err: %+v", err)
 	}
@@ -42,8 +53,8 @@ func InitHyStreamManager() {
 func NewHyStreamManager() *HyStreamManager {
 	hyStreamManager := &HyStreamManager{}
 	hyStreamManager.rwLock = &sync.RWMutex{}
-	hyStreamManager.streamMap = make(map[string]map[string]HyStreamI)
-	hyStreamManager.sessionMap = make(map[int64]HySessionI)
+	hyStreamManager.streamMap = make(StreamMap)
+	hyStreamManager.sessionMap = make(SessionMap)
 	return hyStreamManager
 }
 
@@ -51,7 +62,7 @@ func (streamManager *HyStreamManager) CreateSrcStream(hySession HySessionI) bool
 	if hySession.SessionType().IsSource() {
 		return streamManager.addSourceSession(hySession)
 	} else {
-		return false
+		return streamManager.addSinkSession(hySession)
 	}
 }
 
@@ -64,6 +75,8 @@ func (streamManager *HyStreamManager) addSinkSession(hySession HySessionI) bool 
 	if stream == nil {
 		return false
 	}
+	hyStream := stream.(*HyStream)
+	hyStream.addSink(hySession)
 	return true
 }
 
@@ -90,35 +103,42 @@ func (streamManager *HyStreamManager) addSourceSession(sess HySessionI) bool {
 	return false
 }
 
-func (streamManager *HyStreamManager) DeleteStream(id int64) {
+func (streamManager *HyStreamManager) DeleteStream(id int64) error {
 	streamManager.rwLock.Lock()
 	defer streamManager.rwLock.Unlock()
 	rmSession := streamManager.sessionMap[id]
 	if rmSession == nil {
-		return
+		return fmt.Errorf("session not found by id")
 	}
 	delete(streamManager.sessionMap, id)
-	if rmSession.SessionType().IsSink() {
-		return
-	}
 	vhost := rmSession.Base().Vhost()
 	streamName := rmSession.Base().Name()
 	vhostMap := streamManager.streamMap[vhost]
 	if vhostMap == nil {
-		return
+		return fmt.Errorf("vhostMap not found  vhost")
 	}
-	delete(vhostMap, streamName)
-	return
+	if rmSession.SessionType().IsSink() {
+		streamI := vhostMap[streamName]
+		if streamI == nil {
+			return ""
+		}
+	} else {
+		//delete source
+		delete(vhostMap, streamName)
+	}
+	return true
 }
 
 // StreamFilter for biz
-func (streamManager *HyStreamManager) StreamFilter(filter func(map[string]map[string]HyStreamI)) error {
+func (streamManager *HyStreamManager) StreamFilter(filter func(StreamMap)) error {
 	if filter == nil {
 		//ret all streams
 		return fmt.Errorf("filter is nil")
 	}
-	streamM := util.Copy(streamManager.streamMap)
-	filter(streamM.(map[string]map[string]HyStreamI))
+	streamManager.rwLock.RLock()
+	streamM := streamManager.streamMap.Clone()
+	streamManager.rwLock.RUnlock()
+	filter(streamM.(StreamMap))
 	return nil
 }
 
@@ -149,7 +169,7 @@ func (streamManager *HyStreamManager) Publish(hy HySessionI) error {
 	if err != nil {
 		return err
 	}
-	return hy.Handler().OnPublish(hy.Ctx(), &SourceArg{})
+	return hy.Handler().OnPublish(&SourceArg{})
 }
 
 func (streamManager *HyStreamManager) Sink(hy HySessionI) error {
@@ -163,6 +183,10 @@ func (streamManager *HyStreamManager) Sink(hy HySessionI) error {
 	if stream == nil {
 		return fmt.Errorf("stream not found")
 	}
+	var err = event.PushEvent0(hy.Ctx(), event.OnSessionCreate, NewStreamEvent(info, hy))
+	if err != nil {
+		return err
+	}
 	return stream.Sink(&SinkArg{
 		Ctx:         hy.Ctx(),
 		Sink:        &SinkRtmp{},
@@ -170,14 +194,14 @@ func (streamManager *HyStreamManager) Sink(hy HySessionI) error {
 	})
 }
 
-func (s *EventHandler) Event() []event.HyEvent {
+func (streamManager *HyStreamManager) Event() []event.HyEvent {
 	return []event.HyEvent{
 		event.OnSessionCreate,
 		event.OnSessionDelete,
 	}
 }
 
-func (s *EventHandler) Handle(e event.HyEvent, data *model.EventWrap) {
+func (streamManager *HyStreamManager) Handle(e event.HyEvent, data *model.EventWrap) {
 	marshaledData, _ := json.Marshal(data.Data)
 	log.Infof(data.Ctx, "handle event %d, data: %+v", e, string(marshaledData))
 	switch e {

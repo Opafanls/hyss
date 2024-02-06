@@ -3,15 +3,13 @@ package hls
 import (
 	"bytes"
 	"fmt"
-	"github.com/gwuhaolin/livego/configure"
-	"time"
-
-	"github.com/gwuhaolin/livego/av"
-	"github.com/gwuhaolin/livego/container/flv"
-	"github.com/gwuhaolin/livego/container/ts"
-	"github.com/gwuhaolin/livego/parser"
-
+	"github.com/Opafanls/hylan/server/core/av"
+	"github.com/Opafanls/hylan/server/parser"
+	"github.com/Opafanls/hylan/server/protocol/container/flv"
+	"github.com/Opafanls/hylan/server/protocol/container/ts"
+	"github.com/Opafanls/hylan/server/protocol/rtmp_src/configure"
 	log "github.com/sirupsen/logrus"
+	"time"
 )
 
 const (

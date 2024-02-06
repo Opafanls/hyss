@@ -117,11 +117,6 @@ type GetWriter interface {
 	GetWriter(Info) WriteCloser
 }
 
-type Handler interface {
-	HandleReader(ReadCloser)
-	HandleWriter(WriteCloser)
-}
-
 type Alive interface {
 	Alive() bool
 }
@@ -170,4 +165,9 @@ type WriteCloser interface {
 
 type PacketWriter interface {
 	Write(*Packet) error
+}
+
+type Handler interface {
+	HandleReader(ReadCloser)
+	HandleWriter(WriteCloser)
 }

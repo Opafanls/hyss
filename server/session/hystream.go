@@ -63,6 +63,13 @@ func (stream *HyStream) RangeSinks(rangeFun func(id int64, session HySessionI)) 
 func (stream *HyStream) MarshalJSON() ([]byte, error) {
 	m := make(map[string]interface{}, 2)
 	m["stream_source"] = stream.sourceSession
-	m["stream_sinks"] = stream.sinkSessions
+	sinkM := make(map[int64]HySessionI)
+	stream.sinkSessions.Range(func(key, value any) bool {
+		id := key.(int64)
+		session := value.(HySessionI)
+		sinkM[id] = session
+		return true
+	})
+	m["stream_sinks"] = sinkM
 	return json.Marshal(m)
 }

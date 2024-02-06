@@ -2,14 +2,11 @@ package httpflv
 
 import (
 	"encoding/json"
+	"github.com/Opafanls/hylan/server/core/av"
+	log "github.com/sirupsen/logrus"
 	"net"
 	"net/http"
 	"strings"
-
-	"github.com/gwuhaolin/livego/av"
-	"github.com/gwuhaolin/livego/protocol/rtmp"
-
-	log "github.com/sirupsen/logrus"
 )
 
 type Server struct {
@@ -48,38 +45,8 @@ func (server *Server) Serve(l net.Listener) error {
 
 // 获取发布和播放器的信息
 func (server *Server) getStreams(w http.ResponseWriter, r *http.Request) *streams {
-	rtmpStream := server.handler.(*rtmp.RtmpStream)
-	if rtmpStream == nil {
-		return nil
-	}
-	msgs := new(streams)
 
-	rtmpStream.GetStreams().Range(func(key, val interface{}) bool {
-		if s, ok := val.(*rtmp.Stream); ok {
-			if s.GetReader() != nil {
-				msg := stream{key.(string), s.GetReader().Info().UID}
-				msgs.Publishers = append(msgs.Publishers, msg)
-			}
-		}
-		return true
-	})
-
-	rtmpStream.GetStreams().Range(func(key, val interface{}) bool {
-		ws := val.(*rtmp.Stream).GetWs()
-
-		ws.Range(func(k, v interface{}) bool {
-			if pw, ok := v.(*rtmp.PackWriterCloser); ok {
-				if pw.GetWriter() != nil {
-					msg := stream{key.(string), pw.GetWriter().Info().UID}
-					msgs.Players = append(msgs.Players, msg)
-				}
-			}
-			return true
-		})
-		return true
-	})
-
-	return msgs
+	return nil
 }
 
 func (server *Server) getStream(w http.ResponseWriter, r *http.Request) {
@@ -93,12 +60,6 @@ func (server *Server) getStream(w http.ResponseWriter, r *http.Request) {
 }
 
 func (server *Server) handleConn(w http.ResponseWriter, r *http.Request) {
-	defer func() {
-		if r := recover(); r != nil {
-			log.Error("http flv handleConn panic: ", r)
-		}
-	}()
-
 	url := r.URL.String()
 	u := r.URL.Path
 	if pos := strings.LastIndex(u, "."); pos < 0 || u[pos:] != ".flv" {

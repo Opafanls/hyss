@@ -54,7 +54,7 @@ func NewHySession(ctx context.Context, conn hynet.IHyConn, baseStreamInfo base.S
 	hySession := &HySession{
 		sessCtx:       ctx,
 		base:          baseStreamInfo,
-		hySessionStat: &HySessionStat{running: true},
+		hySessionStat: &HySessionStat{IsRunning: true},
 	}
 	hySession.conn = conn
 	hySession.pktSaver = protocol.NewPacketReceiver(hySession.handleMedia)
@@ -176,10 +176,10 @@ func (hy *HySession) checkValid(info base.StreamBaseI) error {
 func (hy *HySession) Close() error {
 	hy.l.Lock()
 	defer hy.l.Unlock()
-	if !hy.hySessionStat.running {
+	if !hy.hySessionStat.Running() {
 		return fmt.Errorf("session not running")
 	}
-	hy.hySessionStat.running = false
+	hy.hySessionStat.IsRunning = false
 	err := hy.handler.OnStop()
 	if err != nil {
 		log.Errorf(hy.Ctx(), "session close err: %+v", err)
@@ -218,9 +218,9 @@ func (hy *HySession) SetConfig(key base.SessionKey, val interface{}) {
 	case base.ConfigKeySessionBase:
 		hy.base = val.(base.StreamBaseI)
 	case base.ConfigKeyVideoCodec:
-		hy.hySessionStat.videoCodec = val.(base.VCodec)
+		hy.hySessionStat.VideoCodec = val.(base.VCodec)
 	case base.ConfigKeyAudioCodec:
-		hy.hySessionStat.audioCodec = val.(base.ACodec)
+		hy.hySessionStat.AudioCodec = val.(base.ACodec)
 	case base.StreamInitSetSourceStream:
 		hy.src = val.(HyStreamI)
 	default:
@@ -238,6 +238,8 @@ func (hy *HySession) SessionType() base.SessionType {
 
 func (hy *HySession) MarshalJSON() ([]byte, error) {
 	m := make(map[string]interface{})
+	m["stat"] = hy.Stat()
+	m["base"] = hy.base
 	return json.Marshal(m)
 }
 
@@ -246,14 +248,14 @@ func (hy *HySession) Stat() *HySessionStat {
 }
 
 type ProtocolHandler interface {
-	ProtocolSourceHandler
-	ProtocolSinkHandler
 	OnStart(ctx context.Context, sess HySessionI) (base.StreamBaseI, error) //开始协议通信，握手之类的初始化工作
-	OnStop() error                                                          //关闭通信
+	OnStop() error
+	ProtocolSourceHandler
+	ProtocolSinkHandler //关闭通信
 }
 
 type ProtocolSourceHandler interface {
-	OnPublish(ctx context.Context, sourceArg *SourceArg) error //开始推流
+	OnPublish(sourceArg *SourceArg) error //开始推流
 	av.PacketReader
 }
 
@@ -272,21 +274,20 @@ func NewStreamEvent(info base.StreamBaseI, sess HySessionI) map[base.SessionKey]
 
 type HySessionStat struct {
 	Init        bool
-	videoPktNum int
-	audioPktNum int
-	videoCodec  base.VCodec
-	audioCodec  base.ACodec
-
-	running bool
+	VideoPktNum int
+	AudioPktNum int
+	VideoCodec  base.VCodec
+	AudioCodec  base.ACodec
+	IsRunning   bool
 }
 
 func (stat *HySessionStat) IncrVideoPkt(num int) {
-	stat.videoPktNum++
+	stat.VideoPktNum++
 }
 func (stat *HySessionStat) IncrAudioPkt(num int) {
-	stat.audioPktNum++
+	stat.AudioPktNum++
 }
 
 func (stat *HySessionStat) Running() bool {
-	return stat.running
+	return stat.IsRunning
 }

@@ -2,6 +2,8 @@ package hls
 
 import (
 	"fmt"
+	"github.com/Opafanls/hylan/server/core/av"
+	"github.com/Opafanls/hylan/server/protocol/rtmp_src/configure"
 	"net"
 	"net/http"
 	"path"
@@ -9,10 +11,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/gwuhaolin/livego/configure"
-
-	"github.com/gwuhaolin/livego/av"
 
 	log "github.com/sirupsen/logrus"
 )
